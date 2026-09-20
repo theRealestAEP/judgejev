@@ -10,14 +10,14 @@ import {
 } from '../server/scenarios.ts';
 import { judgeDefense, sealCase } from '../server/game.ts';
 
-// Start with --limit 36 for one response across all 36 branches. No calls occur with --samples.
+// Start with --limit 150 for one response across all 150 branches. No calls occur with --samples.
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string) =>
   args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const split = option('--split', 'development');
 if (!['development', 'heldout'].includes(split))
   throw new Error('--split must be development or heldout');
-const limit = Number(option('--limit', '432'));
+const limit = Number(option('--limit', '150'));
 if (!Number.isInteger(limit) || limit < 1)
   throw new Error('--limit must be a positive integer');
 const seeds =

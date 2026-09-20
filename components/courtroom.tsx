@@ -256,11 +256,11 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         <section id="court-rules" className="rules-panel">
           <h2>Read the evidence. Raise reasonable doubt.</h2>
           <p>
-            Each round presents a fictional criminal accusation and five
-            exhibits. Some cases are strongly supported; others contain
-            conflicting accounts or uncertain links. Your goal is to raise
-            reasonable doubt. Explain how a weakness affects the whole case, and
-            address the evidence against you.
+            Each round draws from 50 criminal stories and presents five
+            exhibits, starting with what happened. Some cases are strongly
+            supported; others contain conflicting accounts or uncertain links.
+            Your goal is to raise reasonable doubt. Explain how a weakness
+            affects the whole case, and address the evidence against you.
           </p>
           <p>
             The Mostly Honorable Judge Jev weighs the full record and your
@@ -361,17 +361,26 @@ export function Courtroom({ config }: { config: CourtConfig }) {
                 <Scale size={17} /> THE EVIDENCE <span>READ CAREFULLY</span>
               </div>
               <ol className="evidence-list">
-                {current.case.evidence.map((item, i) => (
-                  <li key={`${caseNumber}-${i}`}>
-                    <span
-                      className="exhibit"
-                      aria-label={`Exhibit ${String.fromCharCode(65 + i)}`}
-                    >
-                      {String.fromCharCode(65 + i)}
-                    </span>
-                    <p>{item}</p>
-                  </li>
-                ))}
+                {current.case.evidence.map((item, i) => {
+                  const sourceEnd = item.indexOf(': ');
+                  const finding = item.slice(sourceEnd + 2);
+                  return (
+                    <li key={`${caseNumber}-${i}`}>
+                      <span
+                        className="exhibit"
+                        aria-label={`Exhibit ${String.fromCharCode(65 + i)}`}
+                      >
+                        {String.fromCharCode(65 + i)}
+                      </span>
+                      <p>
+                        <strong className="evidence-source">
+                          {item.slice(0, sourceEnd)}
+                        </strong>
+                        {finding.charAt(0).toUpperCase() + finding.slice(1)}
+                      </p>
+                    </li>
+                  );
+                })}
               </ol>
               <form
                 className="defense-form"

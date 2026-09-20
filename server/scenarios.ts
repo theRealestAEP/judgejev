@@ -1,6 +1,9 @@
 import type { PrivateCase } from './game.ts';
+import { stories, type StoryKind } from './story-catalog.ts';
 
-export const scenarioVersion = 'criminal-12-v5';
+const storyKinds = Object.keys(stories) as StoryKind[];
+
+export const scenarioVersion = 'criminal-50-v1';
 export const caseKinds = [
   'workshop',
   'stairwell',
@@ -14,11 +17,13 @@ export const caseKinds = [
   'charity',
   'storage',
   'restaurant',
+  ...storyKinds,
 ] as const;
 export type CaseKind = (typeof caseKinds)[number];
 export const caseBranches = ['supported', 'alternative', 'unresolved'] as const;
 export type CaseBranch = (typeof caseBranches)[number];
 export const catalog: Record<CaseKind, { title: string; category: string }> = {
+  ...stories,
   workshop: { title: 'Death at the workshop', category: 'HOMICIDE' },
   stairwell: { title: 'The stairwell death', category: 'HOMICIDE' },
   loading_dock: { title: 'The loading dock assault', category: 'ASSAULT' },
@@ -47,6 +52,17 @@ const places = [
 ];
 
 type Details =
+  | {
+      kind: StoryKind;
+      branch: CaseBranch;
+      earlierAt: number;
+      laterAt: number;
+      previousAt: number;
+      weekAt: number;
+      nextAt: number;
+      labAt: number;
+      amount: number;
+    }
   | {
       kind: 'workshop';
       departureDisplay: number;
@@ -86,7 +102,9 @@ type Details =
     }
   | {
       kind: 'bus';
-      saleSignedAt: number;
+      loanedAt: number;
+      returnedAt: number;
+      spareKeyReturned: boolean;
       driverImage: 'clear' | 'obscured';
       plate: string;
     }
@@ -178,7 +196,7 @@ export function createScenario(
     2026,
     roll(0, 11),
     roll(1, 27),
-    kind === 'bank_call' || kind === 'charity' ? roll(9, 16) : roll(18, 23),
+    catalog[kind].category === 'FRAUD' ? roll(9, 16) : roll(18, 23),
     roll(0, 59),
   );
   const base = {
@@ -260,10 +278,10 @@ export function createScenario(
     case 'bus':
       details = {
         kind,
-        saleSignedAt:
-          incidentDay +
-          (branch === 'alternative' ? -gap : gap) * day +
-          10 * 60 * minute,
+        loanedAt: incidentDay - day + 10 * 60 * minute,
+        returnedAt:
+          incidentDay + (branch === 'alternative' ? day : 0) + 12 * 60 * minute,
+        spareKeyReturned: branch === 'supported',
         driverImage: branch === 'supported' ? 'clear' : 'obscured',
         plate: `K${roll(10, 99)}-${roll(100, 999)}`,
       };
@@ -332,6 +350,18 @@ export function createScenario(
               : 'undetermined',
       };
       break;
+    default:
+      details = {
+        kind,
+        branch,
+        earlierAt: at - 15 * minute,
+        laterAt: at + 30 * minute,
+        previousAt: incidentDay - day + 10 * 60 * minute,
+        weekAt: incidentDay - 7 * day + 10 * 60 * minute,
+        nextAt: incidentDay + day + 10 * 60 * minute,
+        labAt: incidentDay + 3 * day + 14 * 60 * minute,
+        amount: roll(2, 9) * 100,
+      };
   }
   const scenario = { ...base, ...details };
   validateScenario(scenario);
@@ -351,6 +381,23 @@ export type CaseReview = {
 };
 
 export function reviewScenario(s: Scenario): CaseReview {
+  if ('branch' in s) {
+    const issue = stories[s.kind].issue;
+    return {
+      expectedVerdict: s.branch === 'supported' ? 'guilty' : null,
+      hasContradiction: false,
+      truth:
+        'This structure specifies the public record. An underlying actor is not assigned to its contested variants.',
+      reason: issue,
+      prosecutionArgument:
+        'Assess the incident, identification, and corroborating records together. ' +
+        issue,
+      defenseArgument: issue,
+      conciseDefense: issue,
+      plausibleMistake:
+        'Being mentioned in an evidence record by itself proves that the defendant committed the entire crime.',
+    };
+  }
   let supported: boolean;
   let hasContradiction = false;
   let truth: string;
@@ -367,7 +414,7 @@ export function reviewScenario(s: Scenario): CaseReview {
         'The defendant was alone with the victim before the assault and was seen leaving with an object resembling the weapon. The recorded departure may follow the attack.';
       defenseArgument = supported
         ? 'The departure must be corrected before comparing it with the assault; in this record its entire range follows the attack, so a timing objection needs to confront the exclusive-access footage.'
-        : 'The calibrated departure range reaches before the attack. The witness saw a bar-shaped object used by several workers, not the assault. Explain why access before the incident does not settle presence during it.';
+        : 'The corrected departure range reaches before the attack. The witness saw a bar-shaped object used by several workers, not the assault. Explain why access before the incident does not settle presence during it.';
       conciseDefense =
         'Apply the clock correction and its uncertainty to the departure, then weigh the witness’s observation against that range.';
       plausibleMistake =
@@ -454,18 +501,18 @@ export function reviewScenario(s: Scenario): CaseReview {
         'Every print recovered after a burglary was deposited during it.';
       break;
     case 'bus':
-      supported = s.driverImage === 'clear' && s.saleSignedAt > s.incidentAt;
-      truth = `${s.saleSignedAt < s.incidentAt ? 'The buyer' : 'The defendant'} drove the van and robbed the bus. The defendant retained a spare key after the sale was signed.`;
+      supported = s.driverImage === 'clear';
+      truth = `${supported ? 'The defendant' : 'The borrower'} drove the van and robbed the bus. In the contested record both people could use a key during the incident.`;
       prosecutionArgument = supported
-        ? 'Continuous face-visible footage identifies the defendant making the threat and taking the fare bag.'
-        : 'The van was linked to the defendant, who retained a key. The driver, a former coworker, associates the robber’s profile and voice with the defendant.';
+        ? 'Continuous face-visible footage identifies the defendant making the threat and taking the fare bag; the recovered numbered bag corroborates it.'
+        : 'The van belongs to the defendant, who had a key. A driver who knows the defendant recognizes the robber’s voice and partial profile.';
       defenseArgument = supported
-        ? 'Another authorized driver had access to the van, but that fact must be weighed against the continuous facial identification.'
-        : 'Compare the sale date, possession account, and spare-key return. A signed sale does not rule out later use by the defendant. The stronger challenge concerns the driver’s brief, distracted identification alongside the buyer’s access.';
+        ? 'Vehicle ownership alone is insufficient, but the continuous facial view and the bag recovered from the defendant create additional links to address.'
+        : 'Use the dated loan and return records to establish the borrower’s actual access. Weigh that alternative against the defendant’s retained key and the driver’s brief, distracted recognition.';
       conciseDefense =
-        'Vehicle ownership, access to a key, and identification of the actual driver are separate links.';
+        'Who had access to the van that night, and how reliably does the driver identify the person who used it?';
       plausibleMistake =
-        'Signing a vehicle sale makes it impossible for the seller to drive it afterward.';
+        'The van’s registered owner must have been driving it during the robbery.';
       break;
     case 'courier':
       supported = s.faceImage === 'clear' && s.badgeReassignedAt > s.incidentAt;
@@ -489,12 +536,12 @@ export function reviewScenario(s: Scenario): CaseReview {
           ? 'A housemate used the remote session to place the fraudulent call and then used the defendant’s bank card, borrowed earlier for errands.'
           : 'A housemate used the shared laptop and the defendant’s bank card to conduct the scam and take the money.';
       prosecutionArgument =
-        'A recorded bank impersonation caused a real loss. The call used the defendant’s laptop, the money entered their account, and the cashpoint image links their appearance to the withdrawal.';
+        'A recorded bank impersonation caused a real loss. The call used the defendant’s laptop, the money entered their account, and the ATM image links their appearance to the withdrawal.';
       defenseArgument = supported
-        ? 'Account ownership alone leaves identity open, but the examiner’s local-session findings and clear withdrawal image supply additional links that the defense must address.'
+        ? 'Account ownership alone leaves identity open, but the private login and sole possession of the laptop and clear withdrawal image supply additional links that the defense must address.'
         : s.access === 'remote_session'
-          ? 'Remote control was active during the call and the log does not distinguish local from remote input. Explain how the housemate’s documented access to the laptop and card affects attribution, while addressing the account and cashpoint resemblance.'
-          : 'A housemate had documented access to the laptop, calling account, and bank card. Weigh that specific alternative against the defendant’s account ownership and the partly obscured cashpoint image.';
+          ? 'Remote control was active during the call and the log does not distinguish local from remote input. Explain how the housemate’s documented access to the laptop and card affects attribution, while addressing the account and ATM resemblance.'
+          : 'A housemate had documented access to the laptop, calling account, and bank card. Weigh that specific alternative against the defendant’s account ownership and the partly obscured ATM image.';
       conciseDefense =
         'Connect the call, computer session, recipient account, and cash withdrawal before deciding who knowingly carried out the scam.';
       plausibleMistake =
@@ -583,6 +630,21 @@ export function validateScenario(s: Scenario): void {
     }
   }
   const at = s.incidentAt;
+  if ('branch' in s) {
+    valid &&=
+      caseBranches.includes(s.branch) &&
+      s.weekAt < s.previousAt &&
+      s.previousAt < s.earlierAt &&
+      s.earlierAt < at &&
+      at < s.laterAt &&
+      s.laterAt < s.nextAt &&
+      s.nextAt < s.labAt &&
+      s.amount >= 200 &&
+      s.amount <= 900;
+    if (!valid)
+      throw new Error(`Invalid ${s.kind} facts, units, or chronology`);
+    return;
+  }
   switch (s.kind) {
     case 'workshop':
       valid &&=
@@ -631,7 +693,13 @@ export function validateScenario(s: Scenario): void {
         );
       break;
     case 'bus':
-      valid &&= s.saleSignedAt !== at;
+      valid &&=
+        s.loanedAt < at &&
+        s.loanedAt < s.returnedAt &&
+        !(
+          s.driverImage === 'clear' &&
+          (!s.spareKeyReturned || s.returnedAt > at)
+        );
       break;
     case 'courier':
       valid &&= Number.isInteger(s.badge) && s.badge >= 100 && s.badge <= 999;
@@ -678,6 +746,37 @@ export function renderScenario(s: Scenario): PrivateCase {
   validateScenario(s);
   const at = s.incidentAt;
   const t = time(at);
+  if ('branch' in s) {
+    const story = stories[s.kind];
+    const values: Record<string, string> = {
+      time: t,
+      place: s.site,
+      amount: money(s.amount),
+      earlier: time(s.earlierAt),
+      later: time(s.laterAt),
+      previous: time(s.previousAt),
+      week: time(s.weekAt),
+      next: time(s.nextAt),
+      lab: time(s.labAt),
+    };
+    const fill = (text: string) =>
+      text.replace(/\{(\w+)\}/g, (_, key: string) => values[key]);
+    const branchIndex = caseBranches.indexOf(s.branch);
+    const review = reviewScenario(s);
+    return {
+      title: `${story.title} · ${s.site} #${s.reference}`,
+      category: story.category,
+      accusation: fill(story.accusation),
+      evidence: story.evidence.map((exhibit) =>
+        fill(typeof exhibit === 'string' ? exhibit : exhibit[branchIndex]),
+      ),
+      solution: review.reason,
+      rubric: review.expectedVerdict
+        ? 'Supported control: guilty is the authored expectation.'
+        : 'Contested record: weigh both accounts; no fixed verdict expectation.',
+      sampleDefense: review.conciseDefense,
+    };
+  }
   let accusation: string;
   let evidence: string[];
   switch (s.kind) {
@@ -686,8 +785,8 @@ export function renderScenario(s: Scenario): PrivateCase {
       evidence = [
         `Emergency and medical records: the victim was found dead beside the workbench. The fatal head injuries correspond to the repeated bar strikes on the workshop recording.`,
         `Workshop camera, synchronized to dispatch time: on ${t}, a masked person repeatedly strikes the unarmed, retreating victim. The face is hidden. No earlier violence appears in the recording.`,
-        `Corridor camera: displayed entry ${time(s.entryAt + s.clockOffsetMinutes * minute)}; departure ${time(s.departureDisplay)}. The defendant uses the only entrance. The victim is alone before entry; continuous footage shows nobody else entering before departure, when recording ends.`,
-        `Clock examiner: corridor time = dispatch time plus ${s.clockOffsetMinutes} minutes. ${s.clockErrorMinutes ? `The offset estimate has an uncertainty of ±${s.clockErrorMinutes} minutes. No finer calibration survives.` : 'Calibration before and after the incident confirms this offset to the minute.'}`,
+        `Corridor camera: the defendant enters at displayed ${time(s.entryAt + s.clockOffsetMinutes * minute)} and leaves at ${time(s.departureDisplay)}. The victim was alone before entry. Nobody else uses the only entrance before departure; the recording then ends.`,
+        `Clock check: the corridor clock reads ${s.clockOffsetMinutes} minutes ahead of the workshop clock. ${s.clockErrorMinutes ? `That estimate may be wrong by up to ${s.clockErrorMinutes} minutes in either direction.` : 'Checks before and after the attack confirm that both clocks agree.'}`,
         `Witness statement: "The defendant came out in dark coveralls carrying something long and metal. I was across the yard." Tool records show that several workers used bars like the one recovered beside the victim.`,
       ];
       break;
@@ -736,8 +835,8 @@ export function renderScenario(s: Scenario): PrivateCase {
       const uncertain = s.journeyUncertaintyMinutes > 0;
       accusation = `You are accused of breaking into a pharmacy in ${s.site} on ${t} to steal prescription stock.`;
       evidence = [
-        `Alarm and interior camera: on ${t}, a person forces a locked rear door, enters the closed pharmacy, fills a bag with stock, and leaves. The owner's access list grants the defendant no permission to enter.`,
-        `Owner, who knows the defendant: "I identify the defendant on the entry footage." ${uncertain ? 'The face is partly covered and the frame is blurred.' : 'The camera records the uncovered face under the entrance light.'} The report preserves the original image.`,
+        `Alarm and interior camera: on ${t}, a person forces a locked rear door, enters the closed pharmacy, fills a bag with stock, and leaves. The owner confirms the defendant had no permission to enter.`,
+        `Owner, who knows the defendant: "I identify the defendant on the entry footage." ${uncertain ? 'The face is partly covered and the frame is blurred.' : 'The camera records the uncovered face under the entrance light.'} The original image is available.`,
         `Independent garage camera: the defendant leaves the staffed garage on foot on ${time(s.departureAt)}. The garage and pharmacy recorders were checked against the same time source.`,
         `Route reconstruction: a trial from the garage to the pharmacy took ${s.journeyMinutes} minutes${uncertain ? `; variations in waiting and route conditions give a range of ${s.journeyMinutes - s.journeyUncertaintyMinutes}–${s.journeyMinutes + s.journeyUncertaintyMinutes} minutes` : ', using routes and transport available that night'}. Both location recorders use the same time source.`,
         `Search on ${time(s.searchAt)}: stolen stock was in a used bag in a cupboard shared with a housemate. Print examination on ${time(s.examinedAt)} matched the defendant to the outer zipper; the inner wrapping yielded no usable print.`,
@@ -761,15 +860,21 @@ export function renderScenario(s: Scenario): PrivateCase {
       ];
       break;
     case 'bus':
-      accusation = `You are accused of threatening the bus driver with a knife and taking the fare cash at the ${s.site} terminus on ${t}.`;
+      accusation = `You are accused of threatening a bus driver with a knife and taking the fare bag at ${s.site} on ${t}.`;
       evidence = [
-        `Bus recording: on ${t}, a person gets out of van ${s.plate}, threatens the driver with a knife, takes the fare bag, and returns to the van. The sequence is continuous.`,
+        `Bus camera on ${t}: a person leaves van ${s.plate}, threatens the driver with a knife, takes the fare bag, and returns to the van. The recording is continuous.`,
         s.driverImage === 'clear'
-          ? `Bus front camera: the same person's uncovered face is clear throughout the threat and taking. The driver, a former coworker, identifies that person as the defendant.`
-          : `Bus camera and driver statement: a hood partly covers the robber’s face. The driver, a former coworker, associates the brief profile and voice with the defendant. During the threat, the driver looked down toward the knife.`,
-        `Registry extract dated ${time(at - 10 * 24 * 60 * minute)}: van ${s.plate} is registered to the defendant. Police used this extract to identify a suspect.`,
-        `Sale agreement: van ${s.plate} was sold to the buyer on ${time(s.saleSignedAt)} with its plate unchanged. The buyer says it was collected the following morning. The collection section has a signature but no time entered.`,
-        `Insurance and key records: both the defendant and the buyer were listed as drivers. The defendant retained a spare key until ${time(s.saleSignedAt + 7 * 24 * 60 * minute)}. No stolen cash or knife was recovered from the defendant.`,
+          ? `Front camera: the robber’s uncovered face is clear during the threat and taking. The driver knows the defendant from working together and identifies them.`
+          : `Driver’s statement: a hood partly hid the robber’s face. The driver recognized the defendant’s voice and profile from working together, but looked toward the knife during much of the encounter.`,
+        `Vehicle record: van ${s.plate} belongs to the defendant. The same plate is clearly visible in the bus recording.`,
+        s.driverImage === 'clear'
+          ? `Police search on ${time(at + 30 * minute)}: the defendant is alone in the van with the driver’s numbered fare bag. The bag number matches the bus company’s record.`
+          : `Loan messages: the defendant lent the van and its main key to a coworker on ${time(s.loanedAt)}. A return message is dated ${time(s.returnedAt)}.`,
+        s.driverImage === 'clear'
+          ? `Road cameras: the van leaves the bus stop and is followed through each junction to the police stop. Nobody enters or leaves it on that route.`
+          : s.returnedAt > at
+            ? `Key statements: the borrower held the main key through the robbery. The defendant retained a spare. Both could reach the parked van that evening; neither has a record showing who drove it.`
+            : `Key statements: the borrower returned the van before the robbery but kept a spare key. Both could reach the parked van that evening; neither has a record showing who drove it.`,
       ];
       break;
     case 'courier':
@@ -777,7 +882,7 @@ export function renderScenario(s: Scenario): PrivateCase {
       evidence = [
         `Depot video and courier statement: on ${t}, the person entering with badge ${s.badge} threatens the courier with a bar and takes the parcel. The video follows one person continuously from the badge reader to the courier.`,
         `Printed shift roster: badge ${s.badge} is assigned to the defendant. The roster was printed on ${time(at - 60 * minute)} and was the basis for naming the suspect.`,
-        `Electronic roster: the supervisor changed badge ${s.badge} from the defendant to a coworker on ${time(s.badgeReassignedAt)}. The physical-collection field is blank. Badges were kept in an unlocked drawer beside the desk.`,
+        `Electronic roster: the supervisor changed badge ${s.badge} from the defendant to a coworker on ${time(s.badgeReassignedAt)}. Nobody recorded a physical handover. Staff kept the badges in an unlocked desk drawer.`,
         s.faceImage === 'clear'
           ? `Entrance camera: the badge user's face remains clear from entry through the taking. The supervisor, who works daily with the defendant, identifies the user as the defendant.`
           : `Entrance camera and supervisor statement: the cap hides part of the badge user’s face. The supervisor says the profile and build resemble the defendant, with whom they work daily. The camera records only one side of the face.`,
@@ -785,19 +890,19 @@ export function renderScenario(s: Scenario): PrivateCase {
       ];
       break;
     case 'bank_call':
-      accusation = `You are accused of posing as a bank investigator in ${s.site} on ${t}, deceiving an account holder into transferring ${money(s.amount)} in savings and taking the money.`;
+      accusation = `You are accused of pretending to work for a bank in ${s.site} on ${t}, persuading a customer to send ${money(s.amount)} to your own account, and taking the money.`;
       evidence = [
-        `Victim's call recording on ${t}: the caller claims to be a bank investigator and orders a transfer to a "safe account." The victim follows the instruction. The bank confirms that the caller and destination had no connection to its fraud team.`,
-        `Bank records: ${money(s.amount)} left the victim's savings on ${t} and entered the defendant's personal account. That sum was withdrawn with the defendant's card on ${time(s.withdrawnAt)}. The victim received no refund.`,
-        `Computer examination on ${time(s.examinedAt)}: the call provider's session ID matches a call made from the defendant's laptop. The call used a spoofed bank number. A saved script contains the victim's account details and the same transfer instruction.`,
+        `Customer’s recording on ${t}: the caller says the savings are at risk and asks for a transfer to a "safe account." The customer sends ${money(s.amount)}. The bank confirms it sent no such instruction.`,
+        `Bank records: the "safe account" belongs to the defendant. The customer’s ${money(s.amount)} arrives during the call. A withdrawal for the same amount uses the defendant’s bank card on ${time(s.withdrawnAt)}.`,
+        `Laptop examination on ${time(s.examinedAt)}: an internet calling app’s saved log matches the scam call in the provider’s records. A saved document contains the customer’s details and the same "safe account" instructions.`,
         s.access === 'exclusive'
-          ? `Session log: from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}, the call ran under the defendant's private login. The examiner found local microphone input and no remote connection. The defendant confirms sole possession of the laptop and card.`
+          ? `Laptop access: the defendant’s private login is open from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}. The defendant confirms they alone had the laptop and bank card during that call.`
           : s.access === 'remote_session'
-            ? `Support log: remote control ran from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}. Local and remote input share one audit trail. Messages confirm the housemate borrowed the defendant's bank card and PIN for errands that morning.`
-            : `Household records: the defendant and a housemate used the same laptop login and calling account. Messages from the previous day gave the housemate the bank card and PIN for errands. Both had access to the laptop during the call.`,
+            ? `Support-app log: a housemate could control the laptop remotely from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}. Earlier messages confirm that the housemate also borrowed the bank card and PIN for errands.`
+            : `Household messages: the defendant and a housemate shared the laptop login and calling app. The defendant lent the housemate the bank card and PIN for errands the previous day.`,
         s.access === 'exclusive'
-          ? `Cashpoint camera on ${time(s.withdrawnAt)}: a continuous clear view shows the defendant inserting the card and taking the cash. Their face matches the bank's account-opening photograph.`
-          : `Cashpoint camera on ${time(s.withdrawnAt)}: the person taking the cash wears a jacket like the defendant's and has a similar build. A cap and the viewing angle obscure the face; the footage cannot resolve facial features.`,
+          ? `ATM footage on ${time(s.withdrawnAt)}: a clear view shows the defendant putting their bank card into the machine and collecting cash. The bank links that transaction to the withdrawal from the receiving account.`
+          : `ATM footage on ${time(s.withdrawnAt)}: the person collecting the cash has the defendant’s build and a similar jacket. A cap hides their face. The bank links that transaction to the withdrawal from the receiving account.`,
       ];
       break;
     case 'charity':
@@ -817,13 +922,15 @@ export function renderScenario(s: Scenario): PrivateCase {
       ];
       break;
     case 'storage':
-      accusation = `You are accused of deliberately setting fire to a unit at the ${s.site} storage yard on ${t}.`;
+      accusation = `You are accused of deliberately starting a fire inside another person’s storage unit at ${s.site} on ${t}.`;
       evidence = [
-        `Yard camera: on ${t}, a masked person pours liquid inside the unit and ignites it; fire spreads along the poured trail. Their coat catches on the latch and leaves a torn scrap. The face remains hidden.`,
-        `Collection inventory on ${time(s.collectedAt)}: after firefighters cleared the scene, the latch scrap was photographed and sealed as ${s.sceneSeal}. A loose scrap from the detained defendant's coat pocket was separately sealed as ${s.sceneSeal + 2}.`,
-        `Laboratory examination on ${time(s.examinedAt)}: package ${s.testedSeal}, submitted as "yard scrap," ${s.comparison === 'physical_fit' ? 'has torn edges that fit the missing section of the seized coat' : 'has weave and dye consistent with the coat’s fabric batch. Charring prevents a reliable edge comparison'}.`,
-        `Evidence intake on ${time(s.receivedAt)}: ${s.testedSeal !== s.sceneSeal ? `the officer reports replacing wet scene bag ${s.sceneSeal} with ${s.testedSeal}. A photo shows a scrap beside the latch label; the old seal is out of frame and the second signature is blank.` : `scene package ${s.testedSeal} arrived sealed, matching the collection photograph. The coat reference stayed in storage.`}`,
-        `Witness and detention records: the defendant wore the seized coat on ${time(at - 5 * minute)} and ${time(at + 3 * minute)}, and confirms keeping it on throughout. The coat is torn. The owner forbade burning the contents. Similar coats are sold locally; nobody saw the igniter’s face.`,
+        `Yard camera on ${t}: a masked person pours liquid inside the unit and lights it. Their coat catches on the door latch, leaving a torn piece of cloth.`,
+        `Witness and police records: the defendant wore the seized coat on ${time(at - 5 * minute)} and ${time(at + 3 * minute)}. The defendant says they kept it on throughout. It has a fresh tear.`,
+        `Collection record on ${time(s.collectedAt)}: after firefighters cleared the scene, an officer photographed the cloth on the latch and sealed it in bag ${s.sceneSeal}. The owner had forbidden any burning in the unit.`,
+        s.testedSeal === s.sceneSeal
+          ? `Laboratory intake on ${time(s.receivedAt)}: bag ${s.sceneSeal} arrived with its original seal intact. Its label and contents matched the collection photographs.`
+          : `Laboratory intake on ${time(s.receivedAt)}: the officer says wet bag ${s.sceneSeal} was replaced by bag ${s.testedSeal}. A photograph shows cloth beside the scene label, but the old seal and a second officer’s signature are missing.`,
+        `Cloth examination on ${time(s.examinedAt)}: ${s.comparison === 'physical_fit' ? `the torn edges of the cloth in bag ${s.testedSeal} fit the missing piece of the defendant’s coat` : `the cloth in bag ${s.testedSeal} has the same fabric and dye as the defendant’s coat. Many coats use that fabric; burning prevents comparison of the torn edges`}.`,
       ];
       break;
     case 'restaurant':
@@ -842,11 +949,6 @@ export function renderScenario(s: Scenario): PrivateCase {
       break;
   }
   const review = reviewScenario(s);
-  const roll = random(s.seed ^ 0x9e3779b9);
-  for (let i = evidence.length - 1; i > 0; i--) {
-    const j = roll(0, i);
-    [evidence[i], evidence[j]] = [evidence[j], evidence[i]];
-  }
   return {
     title: `${catalog[s.kind].title} · ${s.site} #${s.reference}`,
     category: catalog[s.kind].category,
@@ -862,7 +964,7 @@ export function generateCase(
   recentTitles: string[] = [],
   seed = crypto.getRandomValues(new Uint32Array(1))[0],
 ): PrivateCase {
-  const recent = recentTitles.slice(-5);
+  const recent = recentTitles.slice(-12);
   const available = caseKinds.filter(
     (kind) =>
       !recent.some((title) => title.startsWith(`${catalog[kind].title} ·`)),

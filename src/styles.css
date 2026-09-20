@@ -347,6 +347,10 @@ summary:focus-visible {
   font-size: 15px;
   line-height: 1.45;
 }
+.evidence-source {
+  display: block;
+  margin-bottom: 4px;
+}
 .defense-form {
   margin-top: 21px;
 }

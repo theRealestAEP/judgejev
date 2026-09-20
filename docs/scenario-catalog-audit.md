@@ -1,5 +1,8 @@
 # Previous scenario catalog audit
 
+Historical document. The current 50-story implementation is documented in [the catalog](scenarios.md) and [review report](scenario-review.md).
+
+
 Audited for the proposed criminal-case replacement on September 19, 2026. This is a source and catalog audit; full branch-by-branch narrative review remains part of S1. Dispositions describe proposed changes. This records the baseline before the replacement implementation. The local generator now uses the replacement pool; the production release remains separate.
 
 ## Findings

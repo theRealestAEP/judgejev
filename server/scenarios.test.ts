@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  type Scenario,
   caseKinds,
   caseBranches,
   catalog,
@@ -13,7 +14,7 @@ import {
 } from './scenarios.ts';
 import { parseCase, publicCase, judgeDefense, sealCase } from './game.ts';
 
-void test('36,000 cases have valid facts, five sourced neutral exhibits, and supported controls and contested public records', () => {
+void test('150,000 cases have valid facts, five sourced neutral exhibits, and supported controls and contested public records', () => {
   for (const kind of caseKinds) {
     for (const branch of caseBranches) {
       const records = new Set<string>();
@@ -27,7 +28,15 @@ void test('36,000 cases have valid facts, five sourced neutral exhibits, and sup
             exhibit.length <= 300,
             `${kind}/${branch}/${seed}: ${exhibit.length}: ${exhibit}`,
           );
-          assert.match(exhibit, /^[^:]+:/);
+          assert.ok(
+            exhibit.indexOf(': ') > 0,
+            'each exhibit must identify its source',
+          );
+          assert.doesNotMatch(
+            exhibit,
+            /\{\w+\}/,
+            'all dated fact placeholders must resolve',
+          );
           assert.doesNotMatch(exhibit, /\b(?:you|your|undefined|NaN)\b/i);
         }
         assert.deepEqual(parseCase(file), file, `${kind}/${branch}/${seed}`);
@@ -45,8 +54,8 @@ void test('36,000 cases have valid facts, five sourced neutral exhibits, and sup
   }
 });
 
-void test('the pool has two structures for each of the six requested crimes and three different records each', () => {
-  assert.equal(caseKinds.length, 12);
+void test('the pool has 50 distinct stories across six crimes and three different records each', () => {
+  assert.equal(caseKinds.length, 50);
   const categories = new Map<string, number>();
   for (const kind of caseKinds) {
     categories.set(
@@ -70,7 +79,14 @@ void test('the pool has two structures for each of the six requested crimes and 
       ]);
   }
   assert.equal(categories.size, 6);
-  assert.ok([...categories.values()].every((count) => count === 2));
+  assert.deepEqual(Object.fromEntries(categories), {
+    HOMICIDE: 8,
+    ASSAULT: 8,
+    BURGLARY: 10,
+    ROBBERY: 10,
+    FRAUD: 8,
+    ARSON: 6,
+  });
 });
 
 void test('contested records retain both arguments without a predetermined acquittal', () => {
@@ -359,28 +375,26 @@ void test('contested timing allows the accusation and the defense to remain poss
     }
     const bus = createScenario('bus', seed, 'alternative');
     if (bus.kind !== 'bus') throw new Error('wrong case');
-    assert.ok(bus.saleSignedAt < bus.incidentAt);
-    assert.ok(
-      bus.saleSignedAt + 7 * 24 * 60 * 60_000 > bus.incidentAt,
-      'the signed sale does not eliminate access to the spare key',
-    );
+    assert.ok(bus.loanedAt < bus.incidentAt);
+    assert.ok(bus.returnedAt > bus.incidentAt);
+    assert.equal(bus.spareKeyReturned, false);
   }
 });
 
-void test('1,000 continuous rounds avoid the previous five structures and cover all twelve', () => {
+void test('1,000 continuous rounds avoid the previous twelve stories and cover all fifty', () => {
   let recent: string[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < 1000; i++) {
     const file = generateCase(recent, Math.imul(i + 1, 2654435761) >>> 0);
     const title = file.title.split(' ·')[0];
-    assert.ok(recent.slice(-5).every((old) => old.split(' ·')[0] !== title));
+    assert.ok(recent.slice(-12).every((old) => old.split(' ·')[0] !== title));
     seen.add(title);
     recent = [...recent, file.title].slice(-12);
   }
-  assert.equal(seen.size, 12);
+  assert.equal(seen.size, 50);
 });
 
-void test('seeds reproduce records, shuffle exhibits, and give supported and doubtful rounds comparable frequency', () => {
+void test('seeds reproduce records, keep exhibits in authored order, and preserve the 50/50 mix', () => {
   for (const kind of caseKinds) {
     let supported = 0;
     const positions = new Set<number>();
@@ -401,7 +415,7 @@ void test('seeds reproduce records, shuffle exhibits, and give supported and dou
       );
     }
     assert.ok(supported > 425 && supported < 575, `${kind}: ${supported}`);
-    assert.equal(positions.size, 5);
+    assert.deepEqual([...positions], [0]);
   }
 });
 
@@ -433,6 +447,42 @@ void test('all replacement branches send only public evidence and a period respo
         verdict: 'not_guilty',
         probabilities: { guilty: 0.125, not_guilty: 0.875 },
       });
+    }
+  }
+});
+
+void test('all new story timelines survive year boundaries and reject evidence dated before the incident', () => {
+  for (const kind of caseKinds) {
+    const original = createScenario(kind, 42, 'alternative');
+    if (!('branch' in original)) continue;
+    for (const incidentAt of [
+      Date.UTC(2026, 0, 1, 0, 1),
+      Date.UTC(2026, 11, 31, 23, 55),
+    ]) {
+      const shift = incidentAt - original.incidentAt;
+      const s = Object.fromEntries(
+        Object.entries(original).map(([key, value]) => [
+          key,
+          key.endsWith('At') ? (value as number) + shift : value,
+        ]),
+      ) as Extract<Scenario, { branch: string }>;
+      assert.ok(s.weekAt < s.previousAt && s.previousAt < s.earlierAt);
+      assert.ok(s.earlierAt < s.incidentAt && s.incidentAt < s.laterAt);
+      assert.ok(s.laterAt < s.nextAt && s.nextAt < s.labAt);
+      assert.deepEqual(parseCase(renderScenario(s)), renderScenario(s));
+      assert.ok(renderScenario(s).accusation.includes(time(incidentAt)));
+      assert.throws(
+        () => renderScenario({ ...s, nextAt: s.incidentAt - 1 }),
+        /Invalid/,
+      );
+      assert.throws(
+        () => renderScenario({ ...s, labAt: s.nextAt - 1 }),
+        /Invalid/,
+      );
+      assert.throws(
+        () => renderScenario({ ...s, previousAt: s.incidentAt + 1 }),
+        /Invalid/,
+      );
     }
   }
 });

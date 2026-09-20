@@ -1,5 +1,8 @@
 # Scenario revision plan
 
+Historical document. The current 50-story implementation is documented in [the catalog](scenarios.md) and [review report](scenario-review.md).
+
+
 ## Current direction
 
 The user selected a 50/50 mix of supported and contested records, with subtler weaknesses that can support an argument. Version `criminal-12-v3` replaces decisive escape routes with competing evidence. Contested branches carry no fixed verdict expectation; evaluation compares Jev’s judgments and probabilities across responses. This supersedes the fixed doubtful-case labels in the original milestones below. Current evidence is in [the review report](scenario-review.md).
