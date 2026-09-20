@@ -9,7 +9,7 @@ export function Judge({
       className={`judge-art ${state}`}
       viewBox="0 0 500 495"
       role="img"
-      aria-label="Judge Jev, a geometric judge with a circular wig, stern glasses, and a golden gavel"
+      aria-label="The Mostly Honorable Judge Jev, a geometric judge with a circular wig, stern glasses, and a golden gavel"
     >
       <defs>
         <pattern

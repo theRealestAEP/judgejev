@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
@@ -9,43 +7,46 @@ import {
   RotateCcw,
   Scale,
   Sparkles,
+  Timer,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Judge } from '@/components/judge';
-import { useCourtTools } from '@/hooks/use-court-tools';
-import { practiceCase } from '@/lib/practice-case';
+import { useBackgroundMusic } from '@/hooks/use-background-music';
 import type {
   CaseDelivery,
   CourtConfig,
   VerdictResult,
 } from '@/lib/game-types';
 
+const ROUND_SECONDS = 180;
+
 export function Courtroom({ config }: { config: CourtConfig }) {
-  const [current, setCurrent] = useState<CaseDelivery>({
-    case: practiceCase,
-    token: 'practice',
-    generated: false,
-  });
+  const [current, setCurrent] = useState<CaseDelivery | null>(null);
   const [defense, setDefense] = useState('');
   const [result, setResult] = useState<VerdictResult | null>(null);
   const [busy, setBusy] = useState<'case' | 'verdict' | null>(null);
   const [error, setError] = useState('');
+  const [deadline, setDeadline] = useState<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(ROUND_SECONDS);
+  const timeoutSubmitted = useRef(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [caseNumber, setCaseNumber] = useState(1);
-  const [recentTitles, setRecentTitles] = useState([practiceCase.title]);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [caseNumber, setCaseNumber] = useState(0);
+  const [recentTitles, setRecentTitles] = useState<string[]>([]);
   const inFlight = useRef(false);
   const requestController = useRef<AbortController | null>(null);
   const caseHeading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLDivElement>(null);
   const defenseField = useRef<HTMLTextAreaElement>(null);
+  const { startMusic, toggleMusic, musicPlaying } = useBackgroundMusic();
 
   useEffect(() => () => requestController.current?.abort(), []);
   useEffect(() => {
     if (result) resultHeading.current?.focus();
   }, [result]);
   useEffect(() => {
-    if (caseNumber > 1) caseHeading.current?.focus();
+    if (caseNumber > 0) caseHeading.current?.focus();
   }, [caseNumber]);
 
   const request = useCallback(
@@ -87,6 +88,7 @@ export function Courtroom({ config }: { config: CourtConfig }) {
 
   const submitDefense = useCallback(
     async (text: string) => {
+      if (!current) throw new Error('Deal a case first.');
       if (inFlight.current)
         throw new Error('The court is already considering a request.');
       if (result)
@@ -118,8 +120,26 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         setBusy(null);
       }
     },
-    [current.token, request, result],
+    [current, request, result],
   );
+
+  useEffect(() => {
+    if (!deadline || result || busy === 'verdict') return;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0 && !inFlight.current && !timeoutSubmitted.current) {
+        timeoutSubmitted.current = true;
+        void submitDefense(
+          defense.trim()
+            ? defense
+            : `[No defense submitted within ${ROUND_SECONDS} seconds.]`,
+        ).catch(() => {});
+      }
+    };
+    const interval = setInterval(tick, 200);
+    return () => clearInterval(interval);
+  }, [deadline, result, busy, defense, submitDefense]);
 
   const nextCase = useCallback(async () => {
     if (inFlight.current) throw new Error('The clerk is already working.');
@@ -127,6 +147,8 @@ export function Courtroom({ config }: { config: CourtConfig }) {
       throw new Error(
         'Fresh cases are available once the live court is connected.',
       );
+    setGameStarted(true);
+    startMusic();
     inFlight.current = true;
     setBusy('case');
     setError('');
@@ -135,6 +157,9 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         recentTitles,
       });
       setCurrent(delivered);
+      setDeadline(Date.now() + ROUND_SECONDS * 1000);
+      setSecondsLeft(ROUND_SECONDS);
+      timeoutSubmitted.current = false;
       setDefense('');
       setResult(null);
       setCaseNumber((n) => n + 1);
@@ -151,49 +176,22 @@ export function Courtroom({ config }: { config: CourtConfig }) {
       inFlight.current = false;
       setBusy(null);
     }
-  }, [config.generatorReady, recentTitles, request]);
+  }, [config.generatorReady, recentTitles, request, startMusic]);
 
-  useCourtTools({
-    state: {
-      case: current.case,
-      caseNumber,
-      defense,
-      result,
-      busy,
-      liveJudge: config.judgeReady,
-      freshCases: config.generatorReady,
-    },
-    submitDefense,
-    nextCase,
-  });
-
-  function resetPractice() {
-    setResult(null);
-    setDefense('');
-    setError('');
-    defenseField.current?.focus();
-  }
   const caption =
     busy === 'verdict'
       ? '“A moment. I’m judging.”'
       : busy === 'case'
-        ? '“Clerk! Bring me something peculiar.”'
+        ? '“Clerk, bring the next case.”'
         : result?.verdict === 'not_guilty'
-          ? '“A fair point. You’re free to go.”'
+          ? '“There is reasonable doubt. You’re free to go.”'
           : result?.verdict === 'guilty'
-            ? '“The court remains unconvinced.”'
-            : result
-              ? '“Now, about that glowing sign…”'
-              : '“Go on. This ought to be good.”';
-  const verdictLabel =
-    result?.verdict === 'guilty'
-      ? 'GUILTY'
-      : result?.verdict === 'not_guilty'
-        ? 'NOT GUILTY'
-        : 'CASE NOTES';
+            ? '“The evidence supports the charge.”'
+            : '“Go on. This ought to be good.”';
+  const verdictLabel = result?.verdict === 'guilty' ? 'GUILTY' : 'NOT GUILTY';
 
   return (
-    <main className="game-shell">
+    <main className={`game-shell ${current && !result ? 'round-active' : ''}`}>
       <header className="masthead">
         <div className="wordmark">
           <div className="wordmark-icon">
@@ -207,37 +205,53 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           </div>
         </div>
         <div className="header-right">
-          <span className="session-label">
-            <i className="status-dot" />{' '}
-            {config.judgeReady ? 'COURT IS IN SESSION' : 'PRACTICE COURT'}
-          </span>
-          <Button
+          {gameStarted && (
+            <button
+              className="rules-button"
+              onClick={toggleMusic}
+              aria-label={musicPlaying ? 'Mute music' : 'Unmute music'}
+              title={musicPlaying ? 'Mute music' : 'Unmute music'}
+            >
+              {musicPlaying ? <Volume2 /> : <VolumeX />}
+              {musicPlaying ? 'Mute' : 'Unmute'}
+            </button>
+          )}
+          <button
             className="rules-button"
             onClick={() => setRulesOpen(!rulesOpen)}
             aria-expanded={rulesOpen}
             aria-controls="court-rules"
           >
             <HelpCircle /> How to play
-          </Button>
+          </button>
         </div>
       </header>
       {rulesOpen && (
         <section id="court-rules" className="rules-panel">
-          <h2>A little doubt goes a long way.</h2>
+          <h2>Read the evidence. Raise reasonable doubt.</h2>
           <p>
-            Read the five exhibits. Find a contradiction or build an explanation
-            using the evidence. Write your defense, then let Jev decide. A
-            material flaw or a sound alternative earns NOT GUILTY. A bare denial
-            or an invented alibi earns GUILTY. Take your time—this court can
-            wait.
+            Examine the accusation and five exhibits. Sometimes the evidence
+            is contradictory; sometimes it is consistent. Your goal is to raise
+            reasonable doubt. Connect the facts, question an unreliable link,
+            or explain an alternative supported by the evidence.
           </p>
-          {!config.judgeReady && (
-            <p className="practice-explanation">
-              You’re in practice court. You can write a defense and reveal the
-              case notes. Live verdicts and fresh cases become available when
-              the court’s API keys are connected.
-            </p>
-          )}
+          <p>
+            The Mostly Honorable Judge Jev weighs the full record and your
+            response, then decides GUILTY or NOT GUILTY. Jev may find reasonable
+            doubt in the evidence even if your response adds little. A
+            persuasive defense must still stand up to the facts.
+          </p>
+          <p>
+            You have three minutes once the case appears. At zero, your
+            current response is submitted automatically.
+          </p>
+          <p>
+            Powered by Jev from{' '}
+            <a href="https://typesafe.ai/" target="_blank" rel="noreferrer">
+              TypeSafe AI
+            </a>
+            . Jev judges the record and returns the verdict probabilities.
+          </p>
         </section>
       )}
       <div className="docket-bar">
@@ -246,14 +260,13 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           <strong>/ CASE {String(caseNumber).padStart(3, '0')}</strong>
         </span>
         <span>
-          {current.generated ? 'THE ENDLESS DOCKET' : 'THE OPENING CASE'}{' '}
-          <span aria-hidden="true">✦</span>
+          THE ENDLESS DOCKET <span aria-hidden="true">✦</span>
         </span>
       </div>
       <div className="court-layout">
         <aside className="court-column">
           <div className="court-stage">
-            <div className="court-ribbon">THE HONORABLE (MOSTLY) JUDGE JEV</div>
+            <div className="court-ribbon">THE MOSTLY HONORABLE JUDGE JEV</div>
             <Judge
               state={
                 busy === 'verdict'
@@ -277,13 +290,13 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           <div className="judge-note">
             <Sparkles />
             <p>
-              <strong>Something doesn’t add up.</strong>
+              <strong>Weigh every exhibit.</strong>
               <br />
-              The evidence tells a story. Your job is to find the hole in it.
+              Connect the facts and make your case.
             </p>
           </div>
-          {config.generatorReady && !result && (
-            <Button
+          {current && !result && (
+            <button
               className="deal-button"
               disabled={Boolean(busy)}
               onClick={() => void nextCase().catch(() => {})}
@@ -293,9 +306,11 @@ export function Courtroom({ config }: { config: CourtConfig }) {
               ) : (
                 <RotateCcw />
               )}{' '}
-              {busy === 'case' ? 'Writing a fresh case…' : 'Deal a fresh case'}
+              {busy === 'case'
+                ? 'Preparing a fresh case…'
+                : 'Deal a fresh case'}
               <ArrowRight />
-            </Button>
+            </button>
           )}
         </aside>
         <section
@@ -303,128 +318,173 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           aria-label="Current case"
           aria-busy={Boolean(busy)}
         >
-          <div className="paper-top">
-            <span className="case-label">THE PEOPLE v. YOU</span>
-            <span className="case-tag">EXHIBIT A–E</span>
-          </div>
-          <h2 ref={caseHeading} tabIndex={-1}>
-            {current.case.title}
-          </h2>
-          <p className="accusation">{current.case.accusation}</p>
-          <div className="evidence-heading">
-            <Scale size={17} /> THE EVIDENCE <span>READ CAREFULLY</span>
-          </div>
-          <ol className="evidence-list">
-            {current.case.evidence.map((item, i) => (
-              <li key={`${caseNumber}-${i}`}>
-                <span
-                  className="exhibit"
-                  aria-label={`Exhibit ${String.fromCharCode(65 + i)}`}
-                >
-                  {String.fromCharCode(65 + i)}
-                </span>
-                <p>{item}</p>
-              </li>
-            ))}
-          </ol>
-          <form
-            className="defense-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitDefense(defense).catch(() => {});
-            }}
-          >
-            <div className="defense-label">
-              <label htmlFor="defense">Your side of the story.</label>
-              <span id="defense-count">{defense.length} / 1000</span>
-            </div>
-            <Textarea
-              ref={defenseField}
-              id="defense"
-              className="defense-input"
-              value={defense}
-              onChange={(e) => setDefense(e.target.value)}
-              maxLength={1000}
-              aria-describedby="defense-count"
-              readOnly={Boolean(result || busy)}
-              placeholder="Your Honor, there’s a small problem with this evidence…"
-              onKeyDown={(e) => {
-                if (
-                  e.key === 'Enter' &&
-                  (e.metaKey || e.ctrlKey) &&
-                  !result &&
-                  !busy &&
-                  defense.trim()
-                ) {
-                  e.preventDefault();
+          {current ? (
+            <>
+              <div className="paper-top">
+                <span className="case-label">THE PEOPLE v. YOU</span>
+                <span className="case-tag">EXHIBIT A–E</span>
+              </div>
+              <h2 ref={caseHeading} tabIndex={-1}>
+                {current.case.title}
+              </h2>
+              <p className="accusation">{current.case.accusation}</p>
+              <div className="evidence-heading">
+                <Scale size={17} /> THE EVIDENCE <span>READ CAREFULLY</span>
+              </div>
+              <ol className="evidence-list">
+                {current.case.evidence.map((item, i) => (
+                  <li key={`${caseNumber}-${i}`}>
+                    <span
+                      className="exhibit"
+                      aria-label={`Exhibit ${String.fromCharCode(65 + i)}`}
+                    >
+                      {String.fromCharCode(65 + i)}
+                    </span>
+                    <p>{item}</p>
+                  </li>
+                ))}
+              </ol>
+              <form
+                className="defense-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
                   void submitDefense(defense).catch(() => {});
-                }
-              }}
-            />
-            {!result && (
-              <div className="submit-row">
-                <Button
-                  type="submit"
-                  className="submit-button"
-                  disabled={Boolean(busy) || !defense.trim()}
-                >
-                  {busy === 'verdict' ? (
-                    <LoaderCircle className="loading-icon" />
-                  ) : (
-                    <Gavel />
-                  )}
-                  {busy === 'verdict'
-                    ? config.judgeReady
-                      ? 'Jev is deliberating…'
-                      : 'Opening case notes…'
-                    : config.judgeReady
-                      ? 'Plead your case'
-                      : 'Review practice case'}
-                  {!busy && <ArrowRight />}
-                </Button>
-                <span className="submit-hint">
-                  FIVE EXHIBITS.
-                  <br />
-                  ONE DEFENSE.
-                </span>
-              </div>
-            )}
-          </form>
-          {result && (
-            <section className="verdict-panel" aria-label="Case result">
-              <div
-                ref={resultHeading}
-                tabIndex={-1}
-                className={`verdict-stamp ${result.verdict || 'practice'}`}
+                }}
               >
-                {verdictLabel}
-              </div>
-              <div className="eyebrow">
-                {result.source === 'jev'
-                  ? 'DECIDED BY JEV · CASE WRITER’S NOTES'
-                  : 'PRACTICE REVEAL · YOUR DEFENSE WAS NOT SCORED'}
-              </div>
-              <p>{result.notes}</p>
-              {config.generatorReady ? (
-                <Button
-                  className="next-button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void nextCase().catch(() => {})}
-                >
-                  {busy === 'case' ? (
-                    <LoaderCircle className="loading-icon" />
-                  ) : (
-                    <Sparkles />
-                  )}
-                  {busy === 'case' ? 'Preparing your next case…' : 'Next case'}
-                  <ArrowRight />
-                </Button>
-              ) : (
-                <Button className="next-button" onClick={resetPractice}>
-                  <RotateCcw /> Try the opening case again
-                </Button>
+                <div className="defense-label">
+                  <label htmlFor="defense">Your side of the story.</label>
+                  <span id="defense-count">{defense.length} / 1000</span>
+                </div>
+                <textarea
+                  ref={defenseField}
+                  id="defense"
+                  className="defense-input"
+                  value={defense}
+                  onChange={(e) => {
+                    if (deadline && Date.now() < deadline)
+                      setDefense(e.target.value);
+                  }}
+                  maxLength={1000}
+                  aria-describedby="defense-count"
+                  readOnly={Boolean(result || busy) || secondsLeft === 0}
+                  placeholder="Your Honor, the evidence shows…"
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === 'Enter' &&
+                      (e.metaKey || e.ctrlKey) &&
+                      !result &&
+                      !busy &&
+                      defense.trim()
+                    ) {
+                      e.preventDefault();
+                      void submitDefense(defense).catch(() => {});
+                    }
+                  }}
+                />
+                {!result && (
+                  <div className="submit-row">
+                    <button
+                      type="submit"
+                      className="submit-button"
+                      disabled={
+                        Boolean(busy) || !defense.trim() || !config.judgeReady
+                      }
+                    >
+                      {busy === 'verdict' ? (
+                        <LoaderCircle className="loading-icon" />
+                      ) : (
+                        <Gavel />
+                      )}
+                      {busy === 'verdict'
+                        ? 'Jev is deliberating…'
+                        : secondsLeft === 0
+                          ? 'Retry verdict'
+                          : 'Plead your case'}
+                      {!busy && <ArrowRight />}
+                    </button>
+                    <span className="submit-hint">
+                      FIVE EXHIBITS.
+                      <br />
+                      ONE DEFENSE.
+                    </span>
+                  </div>
+                )}
+              </form>
+              {result && (
+                <section className="verdict-panel" aria-label="Case result">
+                  <div
+                    ref={resultHeading}
+                    tabIndex={-1}
+                    className={`verdict-stamp ${result.verdict}`}
+                  >
+                    {verdictLabel}
+                  </div>
+                  <div className="eyebrow">JEV’S VERDICT PROBABILITIES</div>
+                  <div className="probability-grid">
+                    {(['guilty', 'not_guilty'] as const).map((outcome) => (
+                      <div className={`probability ${outcome}`} key={outcome}>
+                        <span>
+                          {outcome === 'guilty' ? 'Guilty' : 'Not guilty'}
+                        </span>
+                        <strong>
+                          {(result.probabilities[outcome] * 100).toFixed(2)}%
+                        </strong>
+                        <meter
+                          min={0}
+                          max={1}
+                          value={result.probabilities[outcome]}
+                          aria-label={`${outcome === 'guilty' ? 'Guilty' : 'Not guilty'} probability`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    className="next-button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void nextCase().catch(() => {})}
+                  >
+                    {busy === 'case' ? (
+                      <LoaderCircle className="loading-icon" />
+                    ) : (
+                      <Sparkles />
+                    )}
+                    {busy === 'case'
+                      ? 'Preparing your next case…'
+                      : 'Next case'}
+                    <ArrowRight />
+                  </button>
+                </section>
               )}
-            </section>
+            </>
+          ) : (
+            <div className="court-welcome">
+              <span className="case-label">THE ENDLESS DOCKET</span>
+              <h2>
+                A fresh case.
+                <br />
+                Your best defense.
+              </h2>
+              <p>
+                Five exhibits. One accusation. You have three minutes to weigh
+                the evidence and plead your case.
+              </p>
+              <button
+                className="next-button"
+                disabled={Boolean(busy) || !config.generatorReady}
+                onClick={() => void nextCase().catch(() => {})}
+              >
+                {busy === 'case' ? (
+                  <LoaderCircle className="loading-icon" />
+                ) : (
+                  <Sparkles />
+                )}
+                {busy === 'case' ? 'Preparing your case…' : 'Play'}
+                <ArrowRight />
+              </button>
+              {!config.generatorReady && (
+                <p className="setup-strip">Connect Jev to open the court.</p>
+              )}
+            </div>
           )}
           {error && (
             <p role="alert" className="error-message">
@@ -433,16 +493,8 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           )}
           {busy === 'case' && (
             <p className="load-status">
-              The clerk is writing five exhibits. Jev will check the case before
-              it reaches you.
+              The clerk is assembling the next case.
             </p>
-          )}
-          {(!config.judgeReady || !config.generatorReady) && (
-            <div className="setup-strip">
-              {config.judgeReady
-                ? 'Jev is connected. Fresh cases need the case writer’s API key.'
-                : 'Practice mode · Connect the live court for Jev’s verdicts and endless new cases.'}
-            </div>
           )}
         </section>
       </div>
@@ -451,10 +503,47 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           ? 'Preparing a new case.'
           : busy === 'verdict'
             ? 'Considering your defense.'
-            : result
-              ? `${verdictLabel}. ${result.notes}`
-              : `Case ${caseNumber}. ${current.case.title}`}
+            : secondsLeft === 0 && !result
+              ? 'Time is up. Your defense is locked for submission.'
+              : result
+                ? `${verdictLabel}. Guilty probability ${(result.probabilities.guilty * 100).toFixed(2)} percent. Not guilty probability ${(result.probabilities.not_guilty * 100).toFixed(2)} percent.`
+                : current
+                  ? `Case ${caseNumber}. ${current.case.title}`
+                  : 'Deal your first case.'}
       </output>
+      {current && !result && (
+        <section
+          className={`countdown-bar ${secondsLeft <= 30 ? 'urgent' : ''}`}
+          aria-label="Round countdown"
+        >
+          <div className="countdown-inner">
+            <div className="countdown-label">
+              <span>
+                <Timer size={20} aria-hidden="true" />
+                {busy === 'verdict'
+                  ? 'JEV IS DELIBERATING'
+                  : secondsLeft === 0
+                    ? 'TIME IS UP'
+                    : 'TIME TO MAKE YOUR CASE'}
+              </span>
+              <strong
+                role="timer"
+                aria-label={`${secondsLeft} seconds remaining`}
+              >
+                {Math.floor(secondsLeft / 60)}:
+                {String(secondsLeft % 60).padStart(2, '0')}
+              </strong>
+            </div>
+            <progress
+              className="countdown-track"
+              aria-label="Time remaining"
+              max={ROUND_SECONDS}
+              value={secondsLeft}
+              aria-valuetext={`${secondsLeft} seconds remaining`}
+            />
+          </div>
+        </section>
+      )}
       <footer className="game-footer">
         <span>ALL SHAPES ARE INNOCENT UNTIL PROVEN GUILTY.</span>
         <span>SMALL COURT. BIG JUDGMENT. ✦</span>

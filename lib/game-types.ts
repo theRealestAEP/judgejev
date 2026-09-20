@@ -7,11 +7,9 @@ export type CaseFile = {
 export type CaseDelivery = {
   case: CaseFile;
   token: string;
-  generated: boolean;
 };
 export type VerdictResult = {
-  verdict: 'guilty' | 'not_guilty' | null;
-  notes: string;
-  source: 'jev' | 'practice';
+  verdict: 'guilty' | 'not_guilty';
+  probabilities: { guilty: number; not_guilty: number };
 };
 export type CourtConfig = { judgeReady: boolean; generatorReady: boolean };

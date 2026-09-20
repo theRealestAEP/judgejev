@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "judge-jev",
+  "main": "server/worker.ts",
+  "compatibility_date": "2026-05-15",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "account_id": "08d4b257b06d9963dceb8819bd226c35",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "judge-jev.com",
+      "custom_domain": true,
+    },
+  ],
+  "ratelimits": [
+    {
+      "name": "CASE_LIMITER",
+      "namespace_id": "2026091901",
+      "simple": {
+        "limit": 12,
+        "period": 60,
+      },
+    },
+    {
+      "name": "VERDICT_LIMITER",
+      "namespace_id": "2026091902",
+      "simple": {
+        "limit": 6,
+        "period": 60,
+      },
+    },
+  ],
+}

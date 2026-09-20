@@ -1,9 +1,5 @@
 import { CourtError, dealCase, judgeDefense, type CourtEnv } from './game.ts';
 
-// A bounded per-isolate burst guard. Hosted access is owner-private; configure
-// platform-wide quotas before broadening access to a public audience.
-const requests = new Map<string, { count: number; until: number }>();
-
 export async function courtRequest(
   request: Request,
   action: 'case' | 'verdict',
@@ -16,27 +12,6 @@ export async function courtRequest(
       throw new CourtError('Please submit from the courtroom.', 403);
     if (!request.headers.get('content-type')?.includes('application/json'))
       throw new CourtError('Send a JSON request.', 415);
-    const ip = request.headers.get('cf-connecting-ip') || 'local';
-    const key = `${ip}:${action}`;
-    const now = Date.now();
-    for (const [id, item] of requests)
-      if (item.until <= now) requests.delete(id);
-    let window = requests.get(key);
-    if (!window) {
-      if (requests.size >= 5000)
-        throw new CourtError(
-          'The court is busy. Please try again shortly.',
-          429,
-        );
-      window = { count: 0, until: now + 60000 };
-      requests.set(key, window);
-    }
-    window.count++;
-    if (window.count > (action === 'case' ? 8 : 20))
-      throw new CourtError(
-        'A moment of order, please. Try again in a minute.',
-        429,
-      );
     const reader = request.body?.getReader();
     if (!reader) throw new CourtError('Send a JSON request.', 400);
     const chunks: Uint8Array[] = [];
@@ -74,7 +49,7 @@ export async function courtRequest(
         recent.some((t) => typeof t !== 'string' || t.length > 80)
       )
         throw new CourtError('The recent case list is invalid.', 400);
-      result = await dealCase(env, recent, fetcher);
+      result = await dealCase(env, recent);
     } else {
       result = await judgeDefense(body.token, body.defense, env, fetcher);
     }
