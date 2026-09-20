@@ -8,12 +8,20 @@ type CourtAudio = {
   stamp: AudioBuffer | null;
 };
 
+function setPlaybackSession(enabled: boolean) {
+  const session = (navigator as Navigator & { audioSession?: { type: string } })
+    .audioSession;
+  if (session) session.type = enabled ? 'playback' : 'auto';
+}
+
 export function useCourtAudio() {
   const player = useRef<CourtAudio | null>(null);
   const muted = useRef(false);
   const [audioPlaying, setAudioPlaying] = useState(false);
 
   const startAudio = useCallback(() => {
+    if (muted.current) return;
+    setPlaybackSession(true);
     if (!player.current) {
       const context = new AudioContext();
       const output = context.createGain();
@@ -21,6 +29,16 @@ export function useCourtAudio() {
       output.connect(context.destination);
       const current: CourtAudio = { context, output, gavel: null, stamp: null };
       player.current = current;
+      context.onstatechange = () => {
+        setAudioPlaying(context.state === 'running' && !muted.current);
+      };
+
+      // Start a silent frame during the tap, before any audio download completes.
+      const unlock = context.createBufferSource();
+      unlock.buffer = context.createBuffer(1, 1, context.sampleRate);
+      unlock.connect(output);
+      unlock.onended = () => unlock.disconnect();
+      unlock.start();
 
       async function load(path: string) {
         const response = await fetch(path);
@@ -74,7 +92,10 @@ export function useCourtAudio() {
     void current.context
       .resume()
       .then(() => {
-        if (current.context.state !== 'closed') setAudioPlaying(!muted.current);
+        if (player.current === current)
+          setAudioPlaying(
+            current.context.state === 'running' && !muted.current,
+          );
       })
       .catch(() => {});
   }, []);
@@ -92,7 +113,8 @@ export function useCourtAudio() {
   }, []);
 
   function toggleAudio() {
-    muted.current = !muted.current;
+    // An Unmute tap also retries playback when the browser interrupted it.
+    muted.current = audioPlaying;
     const current = player.current;
     if (current) {
       // Keep the clock running while muted so old effects never play on unmute.
@@ -101,20 +123,37 @@ export function useCourtAudio() {
         current.context.currentTime,
         0.015,
       );
-      setAudioPlaying(!muted.current);
+      setAudioPlaying(!muted.current && current.context.state === 'running');
     }
-    if (!muted.current) startAudio();
+    if (muted.current) setPlaybackSession(false);
+    else startAudio();
   }
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const resume = () => {
+      const current = player.current;
+      if (
+        current &&
+        !muted.current &&
+        document.visibilityState === 'visible' &&
+        current.context.state !== 'running'
+      )
+        startAudio();
+    };
+    document.addEventListener('visibilitychange', resume);
+    document.addEventListener('click', resume);
+    return () => {
+      document.removeEventListener('visibilitychange', resume);
+      document.removeEventListener('click', resume);
       const current = player.current;
       player.current = null;
-      if (current && current.context.state !== 'closed')
+      if (current && current.context.state !== 'closed') {
+        current.context.onstatechange = null;
         void current.context.close();
-    },
-    [],
-  );
+        setPlaybackSession(false);
+      }
+    };
+  }, [startAudio]);
 
   return { startAudio, toggleAudio, audioPlaying, playSound };
 }

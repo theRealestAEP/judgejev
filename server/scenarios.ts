@@ -1,139 +1,41 @@
-import {
-  catalogKinds,
-  catalogTitles,
-  catalogFamily,
-  isCatalogKind,
-  createCatalog,
-  validateCatalog,
-  renderCatalog,
-  type CatalogDetails,
-} from './catalog-rules.ts';
-import {
-  additionalKinds,
-  createAdditional,
-  validateAdditional,
-  renderAdditional,
-  type AdditionalDetails,
-} from './additional-scenarios.ts';
 import type { PrivateCase } from './game.ts';
 
+export const scenarioVersion = 'criminal-12-v5';
 export const caseKinds = [
-  'clock',
-  'travel',
-  'visibility',
-  'access',
-  'ledger',
-  'vehicle',
-  'custody',
-  'revision',
-  ...additionalKinds,
-  ...catalogKinds,
+  'workshop',
+  'stairwell',
+  'loading_dock',
+  'station',
+  'pharmacy',
+  'jeweler',
+  'bus',
+  'courier',
+  'bank_call',
+  'charity',
+  'storage',
+  'restaurant',
 ] as const;
 export type CaseKind = (typeof caseKinds)[number];
-export type CaseMode = 'flawed' | 'consistent';
-
-type Details =
-  | AdditionalDetails
-  | CatalogDetails
-  | {
-      kind: 'clock';
-      theftStart: number;
-      theftEnd: number;
-      displayed: number;
-      fastBy: number;
-    }
-  | {
-      kind: 'travel';
-      seen: number;
-      theftStart: number;
-      theftEnd: number;
-      minimumJourney: number;
-    }
-  | {
-      kind: 'visibility';
-      identified: number;
-      outageStart: number;
-      outageEnd: number;
-    }
-  | {
-      kind: 'access';
-      account: string;
-      users: number;
-      transfer: number;
-      at: number;
-      revokedAt: number;
-    }
-  | {
-      kind: 'ledger';
-      payment: number;
-      transactions: number;
-      claimedTotal: number;
-      bankTotal: number;
-      transactionId: string;
-      secondTransactionId: string;
-    }
-  | {
-      kind: 'vehicle';
-      suspectPlate: string;
-      recordedPlate: string;
-      at: number;
-      color: string;
-      plateChangedAt: number;
-    }
-  | {
-      kind: 'custody';
-      recoveredSeal: string;
-      testedSeal: string;
-      intermediateSeal: string;
-      labSourceSeal: string;
-      labReading: number;
-    }
-  | {
-      kind: 'revision';
-      originalVersion: number;
-      signedVersion: number;
-      citedVersion: number;
-      signedAt: number;
-      feeRemovedAt: number;
-      citedAt: number;
-      fee: number;
-    };
-export type Scenario = Details & {
-  seed: number;
-  mode: CaseMode;
-  site: string;
-  day: string;
-  reference: number;
+export const caseBranches = ['supported', 'alternative', 'unresolved'] as const;
+export type CaseBranch = (typeof caseBranches)[number];
+export const catalog: Record<CaseKind, { title: string; category: string }> = {
+  workshop: { title: 'Death at the workshop', category: 'HOMICIDE' },
+  stairwell: { title: 'The stairwell death', category: 'HOMICIDE' },
+  loading_dock: { title: 'The loading dock assault', category: 'ASSAULT' },
+  station: { title: 'The station passage', category: 'ASSAULT' },
+  pharmacy: { title: 'The pharmacy break-in', category: 'BURGLARY' },
+  jeweler: { title: 'The jeweler’s workshop', category: 'BURGLARY' },
+  bus: { title: 'The last bus', category: 'ROBBERY' },
+  courier: { title: 'The depot collection', category: 'ROBBERY' },
+  bank_call: { title: 'The bank impersonator', category: 'FRAUD' },
+  charity: { title: 'The hospital collection', category: 'FRAUD' },
+  storage: { title: 'The storage unit fire', category: 'ARSON' },
+  restaurant: { title: 'The restaurant fire', category: 'ARSON' },
 };
 
-const titles: Record<CaseKind, string> = {
-  ...catalogTitles,
-  clock: 'After-hours theft',
-  travel: 'Archive burglary',
-  visibility: 'Loading-bay arson',
-  access: 'Unauthorized transfer',
-  ledger: 'Missing funds',
-  vehicle: 'Vehicle identification',
-  custody: 'The recovered sample',
-  revision: 'The disputed contract',
-  trace_age: 'The drawer print',
-  door_event: 'Restricted access',
-  mass: 'The short shipment',
-  dimensions: 'The service hatch',
-  temperature: 'Cold storage',
-  speed: 'The measured journey',
-  control_sample: 'The laboratory control',
-  notice: 'The access order',
-  spending: 'The purchase approvals',
-  network: 'The external upload',
-  sightline: 'The courtyard witness',
-  invoice: 'The disputed invoice',
-  cure_age: 'The specimen test',
-  backup: 'The deleted project',
-  concentration: 'The stored mixture',
-  delivery: 'The outbound file',
-};
-const sites = [
+const minute = 60_000;
+const day = 24 * 60 * minute;
+const places = [
   'Northgate',
   'Westhaven',
   'Riverside',
@@ -142,362 +44,817 @@ const sites = [
   'Hillcrest',
   'Brookfield',
   'Ashford',
-  'Oakridge',
-  'Stonebridge',
-  'Kingswell',
-  'Southbank',
 ];
 
-// A seed reproduces the facts and exhibit order for a case under this generator version.
+type Details =
+  | {
+      kind: 'workshop';
+      departureDisplay: number;
+      clockOffsetMinutes: number;
+      clockErrorMinutes: number;
+      entryAt: number;
+    }
+  | {
+      kind: 'stairwell';
+      lightsRestoredAt: number;
+      independentIdentification: boolean;
+    }
+  | {
+      kind: 'loading_dock';
+      recording: 'complete_attack' | 'disputed_force' | 'cropped';
+    }
+  | {
+      kind: 'station';
+      barrierRemovedAt: number;
+      secondAccount: 'independent' | 'repeated';
+    }
+  | {
+      kind: 'pharmacy';
+      departureAt: number;
+      journeyMinutes: number;
+      journeyUncertaintyMinutes: number;
+      searchAt: number;
+      examinedAt: number;
+    }
+  | {
+      kind: 'jeweler';
+      traceSurface: 'fresh_fracture' | 'service_panel' | 'loose_tool';
+      visitAt: number;
+      collectedAt: number;
+      examinedAt: number;
+      offeredAt: number;
+    }
+  | {
+      kind: 'bus';
+      saleSignedAt: number;
+      driverImage: 'clear' | 'obscured';
+      plate: string;
+    }
+  | {
+      kind: 'courier';
+      badgeReassignedAt: number;
+      faceImage: 'clear' | 'obscured';
+      badge: number;
+    }
+  | {
+      kind: 'bank_call';
+      access: 'exclusive' | 'remote_session' | 'shared_laptop';
+      sessionStartedAt: number;
+      sessionEndedAt: number;
+      withdrawnAt: number;
+      examinedAt: number;
+      amount: number;
+    }
+  | {
+      kind: 'charity';
+      identification: 'continuous' | 'prompted' | 'partial';
+      priorEventAt: number;
+      searchedAt: number;
+      amount: number;
+      tin: number;
+    }
+  | {
+      kind: 'storage';
+      sceneSeal: number;
+      testedSeal: number;
+      comparison: 'physical_fit' | 'same_fabric';
+      collectedAt: number;
+      receivedAt: number;
+      examinedAt: number;
+    }
+  | {
+      kind: 'restaurant';
+      origin: 'poured_fuel' | 'competing_origins' | 'undetermined';
+    };
+
+export type Scenario = Details & {
+  seed: number;
+  site: string;
+  reference: number;
+  incidentAt: number;
+};
+
 function random(seed: number) {
   let state = seed >>> 0;
   return (min: number, max: number) => {
     state = (state + 0x6d2b79f5) >>> 0;
     let value = Math.imul(state ^ (state >>> 15), state | 1);
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    const fraction = ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-    return min + Math.floor(fraction * (max - min + 1));
+    return (
+      min +
+      Math.floor(
+        (((value ^ (value >>> 14)) >>> 0) / 4294967296) * (max - min + 1),
+      )
+    );
   };
 }
-const time = (minutes: number) =>
-  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+// Timestamps are UTC milliseconds; offsets and durations are explicitly in minutes.
+const dateTimeFormat = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+  timeZone: 'UTC',
+});
+export function time(timestamp: number): string {
+  return dateTimeFormat.format(timestamp);
+}
 const money = (amount: number) => `$${amount.toLocaleString('en-US')}`;
 
 export function createScenario(
   kind: CaseKind,
   seed: number,
-  requestedMode?: CaseMode,
+  requestedBranch?: CaseBranch,
 ): Scenario {
   const roll = random(seed);
-  const drawnMode = roll(0, 1) === 0 ? 'flawed' : 'consistent';
-  const mode = requestedMode ?? drawnMode;
-  const flawed = mode === 'flawed';
-  const common = {
+  const draw = roll(0, 3);
+  const branch =
+    requestedBranch ??
+    (draw < 2 ? 'supported' : draw === 2 ? 'alternative' : 'unresolved');
+  const incidentAt = Date.UTC(
+    2026,
+    roll(0, 11),
+    roll(1, 27),
+    kind === 'bank_call' || kind === 'charity' ? roll(9, 16) : roll(18, 23),
+    roll(0, 59),
+  );
+  const base = {
     seed,
-    mode,
-    site: sites[roll(0, sites.length - 1)],
-    day: `${roll(1, 28)} ${['January', 'March', 'May', 'July', 'September', 'November'][roll(0, 5)]}`,
+    site: places[roll(0, places.length - 1)],
     reference: roll(1000, 9999),
+    incidentAt,
   };
-  const at = roll(10 * 60, 21 * 60);
-  if (isCatalogKind(kind))
-    return { ...common, ...createCatalog(kind, roll, at, flawed) };
+  const at = incidentAt;
+  const incidentDay = at - (at % day);
+  roll(8, 18); // Preserve the parameter sequence of earlier seeds.
+  const gap = roll(3, 6);
+  let details: Details;
   switch (kind) {
-    case 'clock': {
-      const fastBy = roll(8, 25);
-      const duringTheft = at + roll(1, 3);
-      return {
-        ...common,
+    case 'workshop':
+      details = {
         kind,
-        theftStart: at,
-        theftEnd: at + 4,
-        displayed: flawed ? duringTheft : duringTheft + fastBy,
-        fastBy,
+        departureDisplay: at + gap * minute,
+        clockOffsetMinutes: branch === 'alternative' ? gap + 1 : 0,
+        clockErrorMinutes:
+          branch === 'supported' ? 0 : branch === 'alternative' ? 2 : gap + 2,
+        entryAt: at - 30 * minute,
       };
-    }
-    case 'travel': {
-      const minimumJourney = roll(18, 35);
-      const gap = flawed ? roll(4, 9) : minimumJourney + roll(2, 12);
-      return {
-        ...common,
+      break;
+    case 'stairwell':
+      details = {
         kind,
-        seen: at - gap,
-        theftStart: at,
-        theftEnd: at + 3,
-        minimumJourney,
+        lightsRestoredAt: at + (branch === 'alternative' ? gap : -gap) * minute,
+        independentIdentification: branch === 'supported',
       };
-    }
-    case 'visibility': {
-      const outageStart = at - roll(20, 40);
-      const outageEnd = flawed ? at + roll(2, 12) : at - roll(2, 12);
-      return { ...common, kind, identified: at, outageStart, outageEnd };
-    }
-    case 'access': {
-      const offset = roll(5, 25);
-      return {
-        ...common,
+      break;
+    case 'loading_dock':
+      details = {
         kind,
-        account: `PAY-${roll(100, 999)}`,
-        users: roll(3, 12),
-        transfer: roll(12, 98) * 100,
-        at,
-        revokedAt: at + (flawed ? offset : -offset),
+        recording:
+          branch === 'supported'
+            ? 'complete_attack'
+            : branch === 'alternative'
+              ? 'disputed_force'
+              : 'cropped',
       };
-    }
-    case 'ledger': {
-      const payment = roll(12, 99) * 50;
-      const transactions = roll(3, 8);
-      const id = roll(10000, 89999);
-      return {
-        ...common,
+      break;
+    case 'station':
+      details = {
         kind,
-        payment,
-        transactions,
-        bankTotal: payment * (transactions + (flawed ? 0 : 1)),
-        claimedTotal: payment * (transactions + 1),
-        transactionId: `TX-${id}`,
-        secondTransactionId: `TX-${id + (flawed ? 0 : 1)}`,
+        barrierRemovedAt: at + (branch === 'alternative' ? gap : -gap) * minute,
+        secondAccount: branch === 'supported' ? 'independent' : 'repeated',
       };
-    }
-    case 'vehicle': {
-      const suffix = roll(100, 899);
-      const prefix = ['KLM', 'RVT', 'NDP', 'BXS'][roll(0, 3)];
-      const offset = roll(5, 25);
-      return {
-        ...common,
+      break;
+    case 'pharmacy': {
+      const journeyMinutes = roll(24, 38);
+      details = {
         kind,
-        suspectPlate: `${prefix}-${suffix + roll(1, 9)}`,
-        recordedPlate: `${prefix}-${suffix}`,
-        at,
-        color: ['silver', 'white', 'blue', 'black'][roll(0, 3)],
-        plateChangedAt: at + (flawed ? -offset : offset),
+        journeyMinutes,
+        departureAt:
+          at -
+          (journeyMinutes + (branch === 'alternative' ? -gap : gap)) * minute,
+        journeyUncertaintyMinutes: branch === 'supported' ? 0 : gap + 2,
+        searchAt: incidentDay + day + 9 * 60 * minute,
+        examinedAt: incidentDay + 2 * day + 14 * 60 * minute,
       };
+      break;
     }
-    case 'custody': {
-      const seal = roll(1000, 7999);
-      const intermediate = seal + roll(1, 90);
-      const tested = intermediate + roll(1, 90);
-      return {
-        ...common,
+    case 'jeweler':
+      details = {
         kind,
-        recoveredSeal: `S-${seal}`,
-        intermediateSeal: `S-${intermediate}`,
-        testedSeal: `S-${tested}`,
-        labSourceSeal: `S-${flawed ? tested + roll(1, 90) : intermediate}`,
-        labReading: roll(12, 85),
+        traceSurface:
+          branch === 'supported'
+            ? 'fresh_fracture'
+            : branch === 'alternative'
+              ? 'service_panel'
+              : 'loose_tool',
+        visitAt: incidentDay - roll(3, 7) * day + 10 * 60 * minute,
+        collectedAt: at + 2 * 60 * minute,
+        examinedAt: incidentDay + 2 * day + 14 * 60 * minute,
+        offeredAt: at + 45 * minute,
       };
-    }
-    case 'revision': {
-      const version = roll(1, 8);
-      const offset = roll(25, 100);
-      return {
-        ...common,
+      break;
+    case 'bus':
+      details = {
         kind,
-        originalVersion: version,
-        signedVersion: version + (flawed ? 0 : 1),
-        citedVersion: version + 2,
-        signedAt: at,
-        feeRemovedAt: at + (flawed ? offset : -offset),
-        citedAt: at + 120,
-        fee: roll(5, 35) * 1000,
+        saleSignedAt:
+          incidentDay +
+          (branch === 'alternative' ? -gap : gap) * day +
+          10 * 60 * minute,
+        driverImage: branch === 'supported' ? 'clear' : 'obscured',
+        plate: `K${roll(10, 99)}-${roll(100, 999)}`,
       };
+      break;
+    case 'courier':
+      details = {
+        kind,
+        badgeReassignedAt:
+          at + (branch === 'alternative' ? -gap : gap) * minute,
+        faceImage: branch === 'supported' ? 'clear' : 'obscured',
+        badge: roll(100, 999),
+      };
+      break;
+    case 'bank_call':
+      details = {
+        kind,
+        access:
+          branch === 'supported'
+            ? 'exclusive'
+            : branch === 'alternative'
+              ? 'remote_session'
+              : 'shared_laptop',
+        sessionStartedAt: at - 20 * minute,
+        sessionEndedAt: at + 10 * minute,
+        withdrawnAt: at + 45 * minute,
+        examinedAt: incidentDay + 2 * day + 14 * 60 * minute,
+        amount: roll(2, 9) * 100,
+      };
+      break;
+    case 'charity':
+      details = {
+        kind,
+        identification:
+          branch === 'supported'
+            ? 'continuous'
+            : branch === 'alternative'
+              ? 'prompted'
+              : 'partial',
+        priorEventAt: incidentDay - roll(14, 28) * day + 12 * 60 * minute,
+        searchedAt: incidentDay + day + 9 * 60 * minute,
+        amount: roll(8, 30) * 100,
+        tin: roll(100, 999),
+      };
+      break;
+    case 'storage': {
+      const sceneSeal = roll(1000, 8999);
+      details = {
+        kind,
+        sceneSeal,
+        testedSeal: sceneSeal + (branch === 'alternative' ? 1 : 0),
+        comparison: branch === 'unresolved' ? 'same_fabric' : 'physical_fit',
+        collectedAt: at + 3 * 60 * minute,
+        receivedAt: incidentDay + day + 10 * 60 * minute,
+        examinedAt: incidentDay + 3 * day + 14 * 60 * minute,
+      };
+      break;
     }
-    default:
-      return { ...common, ...createAdditional(kind, roll, at, flawed) };
+    case 'restaurant':
+      details = {
+        kind,
+        origin:
+          branch === 'supported'
+            ? 'poured_fuel'
+            : branch === 'alternative'
+              ? 'competing_origins'
+              : 'undetermined',
+      };
+      break;
   }
+  const scenario = { ...base, ...details };
+  validateScenario(scenario);
+  return scenario;
 }
 
-// Validate the relationships against the private case mode. Both modes use the
-// same exhibit structure; only the critical facts change. Mode stays on the server.
-export function validateScenario(s: Scenario): void {
-  if ('facts' in s) return validateCatalog(s);
-  let valid: boolean;
-  let hasFlaw: boolean;
+export type CaseReview = {
+  // null means the record is intentionally contested; neither verdict is a test failure.
+  expectedVerdict: 'guilty' | null;
+  hasContradiction: boolean;
+  truth: string;
+  reason: string;
+  prosecutionArgument: string;
+  defenseArgument: string;
+  conciseDefense: string;
+  plausibleMistake: string;
+};
+
+export function reviewScenario(s: Scenario): CaseReview {
+  let supported: boolean;
+  let hasContradiction = false;
+  let truth: string;
+  let prosecutionArgument: string;
+  let defenseArgument: string;
+  let conciseDefense: string;
+  let plausibleMistake: string;
   switch (s.kind) {
-    case 'clock': {
-      const actual = s.displayed - s.fastBy;
-      valid =
-        s.theftStart < s.theftEnd &&
-        s.fastBy > 0 &&
-        actual >= 0 &&
-        actual <= s.theftEnd;
-      hasFlaw = actual < s.theftStart;
+    case 'workshop': {
+      const departure = s.departureDisplay - s.clockOffsetMinutes * minute;
+      supported = departure - s.clockErrorMinutes * minute > s.incidentAt;
+      truth = `${s.clockOffsetMinutes > 0 ? 'Another worker' : 'The defendant'} committed the fatal assault. The corridor clock estimate has the uncertainty stated in the calibration record.`;
+      prosecutionArgument =
+        'The defendant was alone with the victim before the assault and was seen leaving with an object resembling the weapon. The recorded departure may follow the attack.';
+      defenseArgument = supported
+        ? 'The departure must be corrected before comparing it with the assault; in this record its entire range follows the attack, so a timing objection needs to confront the exclusive-access footage.'
+        : 'The calibrated departure range reaches before the attack. The witness saw a bar-shaped object used by several workers, not the assault. Explain why access before the incident does not settle presence during it.';
+      conciseDefense =
+        'Apply the clock correction and its uncertainty to the departure, then weigh the witness’s observation against that range.';
+      plausibleMistake =
+        'The displayed departure time is the actual departure time; the calibration does not matter.';
       break;
     }
-    case 'travel':
-      valid =
-        s.seen < s.theftStart &&
-        s.theftStart < s.theftEnd &&
-        s.minimumJourney > 0;
-      hasFlaw = s.seen + s.minimumJourney > s.theftEnd;
+    case 'stairwell':
+      supported = s.independentIdentification;
+      hasContradiction = s.lightsRestoredAt > s.incidentAt;
+      truth = `${supported ? 'The defendant' : 'Another resident'} pushed the victim. In the contested record, witnesses interpreted a brief view and a voice as belonging to the defendant.`;
+      prosecutionArgument = supported
+        ? 'A close recording identifies the defendant delivering the push; the medical record connects the fall to the death.'
+        : 'A familiar neighbor identifies the defendant, and a second resident recognizes the voice. Presence and the earlier argument support those accounts.';
+      defenseArgument = supported
+        ? 'Question the distant witness’s lighting and brief view, but account for the separate close recording before treating that weakness as material.'
+        : 'The face was glimpsed from 35 metres away. Check the lamp timing, then distinguish the second witness’s voice recognition from their repeated visual identification. Explain why those links may reinforce the same mistake.';
+      conciseDefense =
+        'Separate what each witness personally perceived from what they learned from the other witness.';
+      plausibleMistake =
+        'Two statements identifying the same person always count as two independent visual identifications.';
       break;
-    case 'visibility':
-      valid = s.outageStart < s.outageEnd && s.outageStart < s.identified;
-      hasFlaw = s.identified < s.outageEnd;
+    case 'loading_dock':
+      supported = s.recording === 'complete_attack';
+      hasContradiction = !supported;
+      truth =
+        s.recording === 'disputed_force'
+          ? 'The injured worker swung a hook, lowered it while stepping back, and was then pushed by the defendant. The defendant still feared another swing.'
+          : 'The defendant initiated the confrontation and caused the fall; the cropped branch loses the start of the recording.';
+      prosecutionArgument = supported
+        ? 'Uninterrupted video and the dispatch caller describe an unprovoked attack causing the injury.'
+        : 'The defendant caused the injurious fall. The complaint alleges an attack, and the visible push may have exceeded what was needed at that moment.';
+      defenseArgument = supported
+        ? 'The earlier dispute and the hook’s presence give context, but the uninterrupted lead-in shows the worker standing with empty hands.'
+        : s.recording === 'disputed_force'
+          ? 'The hook had just been swung and remained in the worker’s hand. Explain why stepping back and lowering it may not have ended the immediate threat, while addressing the timing and force of the push.'
+          : 'The contemporaneous call describes a hook attack before the clip begins. Use that sequence to challenge the unprovoked-attack account, while acknowledging that the missing lead-in does not establish every use of force was justified.';
+      conciseDefense =
+        'Distinguish the earlier threat from whether the particular push was necessary when it happened.';
+      plausibleMistake =
+        'Whoever suffered the worse injury must have been the innocent party.';
       break;
-    case 'access':
-      valid = s.users > 1 && s.transfer > 0 && s.revokedAt !== s.at;
-      hasFlaw = s.revokedAt > s.at;
+    case 'station':
+      supported = s.secondAccount === 'independent';
+      truth = `${supported ? 'The defendant' : 'Another passenger in a similar coat'} struck the passenger. The first witness saw the defendant nearby just after hearing the impact.`;
+      prosecutionArgument = supported
+        ? 'Independent close footage identifies the defendant striking a passenger who offered no threat.'
+        : 'A witness familiar with the defendant places their face at the scene immediately after the blow. A second witness describes the departing person’s coat and direction.';
+      defenseArgument = supported
+        ? 'A screen may weaken the kiosk witness’s account, but the separate platform recording directly records the act.'
+        : 'The first witness looked up after the impact, and the screen may conceal the movement of the hands. The second account adds clothing and direction rather than a face. Explain the gap between identifying someone nearby and identifying the person who struck.';
+      conciseDefense =
+        'Reconstruct what each viewpoint could establish about the strike, not just who was nearby afterward.';
+      plausibleMistake =
+        'A witness who heard the impact necessarily saw who delivered it.';
       break;
-    case 'ledger': {
-      const approved = s.payment * s.transactions;
-      const duplicate = s.transactionId === s.secondTransactionId;
-      valid =
-        s.payment > 0 &&
-        s.transactions > 1 &&
-        s.claimedTotal === approved + s.payment &&
-        s.bankTotal === approved + (duplicate ? 0 : s.payment);
-      hasFlaw = duplicate;
+    case 'pharmacy': {
+      const arrival = s.departureAt + s.journeyMinutes * minute;
+      supported = arrival + s.journeyUncertaintyMinutes * minute < s.incidentAt;
+      truth =
+        'The defendant broke into the pharmacy. The reconstruction is a trial journey; the uncertain branches do not establish the exact trip made that night.';
+      prosecutionArgument =
+        'The owner identifies the defendant in the footage, and stolen stock was recovered in a shared cupboard with a bag bearing the defendant’s print. The reconstructed travel range permits arrival.';
+      defenseArgument = supported
+        ? 'Shared storage and an exterior print do not establish exclusive possession, but the clear identification and feasible journey are independent evidence that an argument must address.'
+        : 'The travel estimate varies with waiting and route conditions, and the identification rests on a partly covered image. An exterior bag print can predate the theft. Weigh the combined uncertainty; the central journey estimate alone is not an alibi.';
+      conciseDefense =
+        'Compare the full journey range with the incident, then address the image quality and what the bag print actually connects.';
+      plausibleMistake =
+        'A reconstruction that usually arrives late proves the defendant could never have arrived in time.';
       break;
     }
-    case 'vehicle':
-      valid = s.suspectPlate !== s.recordedPlate && s.plateChangedAt !== s.at;
-      hasFlaw = s.plateChangedAt < s.at;
+    case 'jeweler':
+      supported = s.traceSurface === 'fresh_fracture';
+      truth = `${supported ? 'The defendant' : 'A colleague using the shared work laptop'} stole the watches. In the contested branches the print came from the earlier repair.`;
+      prosecutionArgument = supported
+        ? 'A print on a newly exposed internal surface and an identified offer of a stolen watch connect the defendant to the burglary.'
+        : 'The defendant was near the workshop, their print was recovered, and a stolen watch was offered from their work laptop through the shared sales account.';
+      defenseArgument = supported
+        ? 'Earlier lawful contact explains prints on accessible surfaces, but this lift came from a surface exposed during the intrusion and is corroborated by the identified sale.'
+        : 'Match the exact lift location to the earlier repair photograph. Lawful contact may explain that print, while a shared account and laptop complicate the sale’s authorship. Address the nearby sighting instead of treating the print’s age as a complete alibi.';
+      conciseDefense =
+        'Separate the date of contact, location of the print, and identity of the person who posted the watch.';
+      plausibleMistake =
+        'Every print recovered after a burglary was deposited during it.';
       break;
-    case 'custody':
-      valid =
-        new Set([s.recoveredSeal, s.intermediateSeal, s.testedSeal]).size ===
-          3 && s.labReading > 0;
-      hasFlaw = s.labSourceSeal !== s.intermediateSeal;
+    case 'bus':
+      supported = s.driverImage === 'clear' && s.saleSignedAt > s.incidentAt;
+      truth = `${s.saleSignedAt < s.incidentAt ? 'The buyer' : 'The defendant'} drove the van and robbed the bus. The defendant retained a spare key after the sale was signed.`;
+      prosecutionArgument = supported
+        ? 'Continuous face-visible footage identifies the defendant making the threat and taking the fare bag.'
+        : 'The van was linked to the defendant, who retained a key. The driver, a former coworker, associates the robber’s profile and voice with the defendant.';
+      defenseArgument = supported
+        ? 'Another authorized driver had access to the van, but that fact must be weighed against the continuous facial identification.'
+        : 'Compare the sale date, possession account, and spare-key return. A signed sale does not rule out later use by the defendant. The stronger challenge concerns the driver’s brief, distracted identification alongside the buyer’s access.';
+      conciseDefense =
+        'Vehicle ownership, access to a key, and identification of the actual driver are separate links.';
+      plausibleMistake =
+        'Signing a vehicle sale makes it impossible for the seller to drive it afterward.';
       break;
-    case 'revision':
-      valid =
-        s.citedVersion === s.originalVersion + 2 &&
-        s.citedAt > s.signedAt &&
-        s.citedAt > s.feeRemovedAt &&
-        s.feeRemovedAt !== s.signedAt &&
-        s.fee > 0 &&
-        s.signedVersion ===
-          s.originalVersion + (s.feeRemovedAt < s.signedAt ? 1 : 0);
-      hasFlaw = s.signedAt < s.feeRemovedAt;
+    case 'courier':
+      supported = s.faceImage === 'clear' && s.badgeReassignedAt > s.incidentAt;
+      truth = `${s.badgeReassignedAt <= s.incidentAt ? 'A coworker' : 'The defendant'} used the badge and took the parcel. The roster change recorded administration, not a witnessed physical handover.`;
+      prosecutionArgument = supported
+        ? 'The continuous face-visible recording connects the defendant’s entry to the threat and taking.'
+        : 'The badge was associated with the defendant, the supervisor recognizes a similar profile, and the parcel was found under the defendant’s workbench.';
+      defenseArgument = supported
+        ? 'Badge access and the recovery area were shared, but the direct facial recording supplies a separate identification.'
+        : 'The roster and electronic reassignment do not prove who physically held the badge. The profile is partial and coworkers could use the loading bay. Explain how those uncertainties interact while accounting for the recovery under the defendant’s bench.';
+      conciseDefense =
+        'Distinguish badge assignment from physical possession and weigh the recovery location alongside the partial identification.';
+      plausibleMistake =
+        'An electronic badge reassignment proves the badge changed hands at that exact second.';
       break;
-    default:
-      ({ valid, hasFlaw } = validateAdditional(s));
+    case 'bank_call':
+      supported = s.access === 'exclusive';
+      truth = supported
+        ? 'The defendant impersonated a bank investigator, directed the victim to transfer savings, and withdrew the stolen money.'
+        : s.access === 'remote_session'
+          ? 'A housemate used the remote session to place the fraudulent call and then used the defendant’s bank card, borrowed earlier for errands.'
+          : 'A housemate used the shared laptop and the defendant’s bank card to conduct the scam and take the money.';
+      prosecutionArgument =
+        'A recorded bank impersonation caused a real loss. The call used the defendant’s laptop, the money entered their account, and the cashpoint image links their appearance to the withdrawal.';
+      defenseArgument = supported
+        ? 'Account ownership alone leaves identity open, but the examiner’s local-session findings and clear withdrawal image supply additional links that the defense must address.'
+        : s.access === 'remote_session'
+          ? 'Remote control was active during the call and the log does not distinguish local from remote input. Explain how the housemate’s documented access to the laptop and card affects attribution, while addressing the account and cashpoint resemblance.'
+          : 'A housemate had documented access to the laptop, calling account, and bank card. Weigh that specific alternative against the defendant’s account ownership and the partly obscured cashpoint image.';
+      conciseDefense =
+        'Connect the call, computer session, recipient account, and cash withdrawal before deciding who knowingly carried out the scam.';
+      plausibleMistake =
+        'An account holder must personally have made every call that sent money into the account.';
+      break;
+    case 'charity':
+      supported = s.identification === 'continuous';
+      truth = supported
+        ? 'The defendant falsely claimed to collect for the hospital and kept the cash.'
+        : s.identification === 'prompted'
+          ? 'A former volunteer used the shared collection equipment; the donor associated the collector with the defendant after seeing an old volunteer photograph.'
+          : 'A former volunteer used the shared collection equipment and left the proceeds in the shared garage; the defendant had handled the tin at the earlier event.';
+      prosecutionArgument =
+        'Donors paid cash because the collector falsely claimed hospital authority. Witness identification, a matching collection tin, and recovered cash connect the defendant to the taking.';
+      defenseArgument = supported
+        ? 'Earlier volunteer work explains access to a badge, but continuous face-visible footage records the defendant making the false claim, collecting cash, and keeping it.'
+        : s.identification === 'prompted'
+          ? 'The donor named the defendant after viewing the hospital’s old volunteer photograph. Separate that prompted recognition from the brief original observation, then address the tin and money found among equipment available to other volunteers.'
+          : 'The cap obscures the collector’s face, and the tin print can come from the dated earlier event. Explain how shared access affects the recovery evidence while acknowledging the collector’s matching jacket and build.';
+      conciseDefense =
+        'The hospital’s denial establishes the deception; assess separately whether the identification and recovered equipment establish the defendant as the collector.';
+      plausibleMistake =
+        'Having once volunteered for a hospital gives permission to collect money in its name forever.';
+      break;
+    case 'storage':
+      supported =
+        s.sceneSeal === s.testedSeal && s.comparison === 'physical_fit';
+      truth =
+        s.comparison === 'same_fabric'
+          ? 'Another person in a coat from the same fabric batch ignited the unit; burning prevented an edge comparison.'
+          : 'The defendant ignited the unit. In the repackaged branch, an officer replaced a wet evidence bag but left the second signature incomplete.';
+      prosecutionArgument =
+        'The recording shows deliberate ignition and a fresh coat tear. The defendant wore a torn coat throughout the interval, and the laboratory found compatible material.';
+      defenseArgument = supported
+        ? 'The scene seal and physical edge fit create an individual connection, so a general objection that similar coats exist does not address this particular match.'
+        : s.sceneSeal !== s.testedSeal
+          ? 'The intake photo and officer’s account support continuity, but the seal changed and the second signature is blank. Explain why that missing check affects confidence in this particular sample; a paperwork omission alone does not establish substitution.'
+          : 'The weave and dye match a locally sold batch, while charring prevents an edge fit. Explain the difference between a compatible coat and an individual match, while addressing the timing and fresh damage.';
+      conciseDefense =
+        'Assess how much the provenance and comparison method justify identifying this coat as the one in the fire recording.';
+      plausibleMistake =
+        'Any missing evidence signature makes every laboratory finding worthless.';
+      break;
+    case 'restaurant':
+      supported = s.origin === 'poured_fuel';
+      hasContradiction = s.origin === 'competing_origins';
+      truth =
+        s.origin === 'competing_origins'
+          ? 'The electrical fault started the fire near solvent used for cleaning; the examiners disagree about the damaged traces.'
+          : 'The defendant deliberately ignited the office; damage obscures the cause in the unresolved branch.';
+      prosecutionArgument = supported
+        ? 'A poured-fuel trail and ignition match establish deliberate ignition; continuous access footage places only the defendant in the office immediately beforehand.'
+        : 'The defendant was the only recent visitor, had made a threatening remark, and had fuel in the car. Burning near the desk supports the deliberate-ignition theory.';
+      defenseArgument = supported
+        ? 'The recorded socket fault gives a possible alternative to investigate, but the origin report addresses it and ties this fire to a separate poured trail.'
+        : s.origin === 'competing_origins'
+          ? 'A second examiner links the origin to the documented socket fault, and cleaning can explain solvent residue. Reconcile that evidence with the first report, exclusive access, and threatening remark; citing the maintenance ticket alone does not establish an accidental fire.'
+          : 'The examiner cannot establish the order of ignition from the damaged traces. The socket fault and ordinary use of the fuel offer concrete alternatives, but presence and the threat still support the prosecution. Explain why cause remains uncertain after weighing them.';
+      conciseDefense =
+        'Weigh both origin accounts and distinguish possession of fuel and a threat from proof of deliberate ignition.';
+      plausibleMistake =
+        'An earlier electrical fault proves that any later fire must be accidental.';
+      break;
   }
-  if (!valid || hasFlaw !== (s.mode === 'flawed'))
-    throw new Error(
-      `Invalid ${s.kind} scenario: facts disagree with the intended case mode.`,
-    );
+  return {
+    expectedVerdict: supported ? 'guilty' : null,
+    hasContradiction,
+    truth,
+    reason: `${prosecutionArgument} ${defenseArgument}`,
+    prosecutionArgument,
+    defenseArgument,
+    conciseDefense,
+    plausibleMistake,
+  };
+}
+
+export function validateScenario(s: Scenario): void {
+  const validTime = (value: number) =>
+    Number.isSafeInteger(value) && Number.isFinite(new Date(value).getTime());
+  let valid = validTime(s.incidentAt);
+  for (const [key, value] of Object.entries(s)) {
+    if (typeof value === 'number') {
+      valid &&= Number.isSafeInteger(value);
+      if (key.endsWith('At') || key === 'departureDisplay')
+        valid &&= validTime(value);
+    }
+  }
+  const at = s.incidentAt;
+  switch (s.kind) {
+    case 'workshop':
+      valid &&=
+        s.clockOffsetMinutes >= 0 &&
+        s.clockOffsetMinutes <= 18 &&
+        s.clockErrorMinutes >= 0 &&
+        s.clockErrorMinutes <= 8 &&
+        s.entryAt < at &&
+        s.entryAt <
+          s.departureDisplay -
+            (s.clockOffsetMinutes + s.clockErrorMinutes) * minute;
+      break;
+    case 'stairwell':
+      valid &&=
+        Math.abs(s.lightsRestoredAt - at) <= 6 * minute &&
+        !(s.independentIdentification && s.lightsRestoredAt > at);
+      break;
+    case 'loading_dock':
+      valid &&= ['complete_attack', 'disputed_force', 'cropped'].includes(
+        s.recording,
+      );
+      break;
+    case 'station':
+      valid &&=
+        Math.abs(s.barrierRemovedAt - at) <= 6 * minute &&
+        !(s.secondAccount === 'independent' && s.barrierRemovedAt > at);
+      break;
+    case 'pharmacy':
+      valid &&=
+        s.departureAt < at &&
+        s.journeyMinutes >= 24 &&
+        s.journeyMinutes <= 38 &&
+        s.journeyUncertaintyMinutes >= 0 &&
+        s.journeyUncertaintyMinutes <= 8 &&
+        at < s.searchAt &&
+        s.searchAt < s.examinedAt;
+      break;
+    case 'jeweler':
+      valid &&=
+        s.visitAt < at &&
+        at < s.collectedAt &&
+        s.collectedAt < s.examinedAt &&
+        at < s.offeredAt &&
+        ['fresh_fracture', 'service_panel', 'loose_tool'].includes(
+          s.traceSurface,
+        );
+      break;
+    case 'bus':
+      valid &&= s.saleSignedAt !== at;
+      break;
+    case 'courier':
+      valid &&= Number.isInteger(s.badge) && s.badge >= 100 && s.badge <= 999;
+      break;
+    case 'bank_call':
+      valid &&=
+        s.amount >= 200 &&
+        s.amount <= 900 &&
+        s.sessionStartedAt < at &&
+        at < s.sessionEndedAt &&
+        s.sessionEndedAt < s.withdrawnAt &&
+        s.withdrawnAt < s.examinedAt &&
+        ['exclusive', 'remote_session', 'shared_laptop'].includes(s.access);
+      break;
+    case 'charity':
+      valid &&=
+        s.amount >= 800 &&
+        s.amount <= 3000 &&
+        s.priorEventAt < at &&
+        at < s.searchedAt &&
+        s.tin >= 100 &&
+        s.tin <= 999 &&
+        ['continuous', 'prompted', 'partial'].includes(s.identification);
+      break;
+    case 'storage':
+      valid &&=
+        s.sceneSeal >= 1000 &&
+        s.testedSeal >= 1000 &&
+        at + 3 * minute < s.collectedAt &&
+        s.collectedAt < s.receivedAt &&
+        s.receivedAt < s.examinedAt &&
+        ['physical_fit', 'same_fabric'].includes(s.comparison);
+      break;
+    case 'restaurant':
+      valid &&= ['poured_fuel', 'competing_origins', 'undetermined'].includes(
+        s.origin,
+      );
+      break;
+  }
+  if (!valid) throw new Error(`Invalid ${s.kind} facts, units, or chronology`);
 }
 
 export function renderScenario(s: Scenario): PrivateCase {
   validateScenario(s);
-  const flawed = s.mode === 'flawed';
+  const at = s.incidentAt;
+  const t = time(at);
   let accusation: string;
   let evidence: string[];
-  let solution: string;
-  let challenge: string;
-  if ('facts' in s) {
-    ({ accusation, evidence, solution, challenge } = renderCatalog(s));
-  } else
-    switch (s.kind) {
-      case 'clock':
-        accusation = `You are accused of taking equipment from the ${s.site} warehouse on ${s.day}. The prosecution relies on security footage and the warehouse's inventory records.`;
-        evidence = [
-          `Checked door and inventory monitors place the removal between ${time(s.theftStart)} and ${time(s.theftEnd)} in official time.`,
-          `The camera identifies you carrying the missing inventory crate by its visible stock number. The frame's displayed time is ${time(s.displayed)}.`,
-          `At a calibration check, the reference clock read 09:00 and the camera read ${time(9 * 60 + s.fastBy)}. The offset remained constant throughout the day.`,
-          `Your authorized handover work ended at ${time(s.theftStart - 1)}. Earlier crate movements were permitted; the equipment removed during the monitored interval had no release authorization.`,
-          'You knew the storage layout and had disputed your overtime pay. The camera frame is the prosecution’s evidence linking you to the removal interval.',
-        ];
-        solution = `The camera is ${s.fastBy} minutes fast: ${time(s.displayed)} converts to ${time(s.displayed - s.fastBy)}. This falls ${flawed ? 'before' : 'inside'} the ${time(s.theftStart)}–${time(s.theftEnd)} removal window. ${flawed ? 'The timing fails to link the frame to the theft.' : 'The calibration supports the timing; invoking the clock offset does not undermine this link.'}`;
-        challenge =
-          'The calibration shows the camera is fast. Correcting its timestamp puts the frame before the theft window, during my authorized work.';
-        break;
-      case 'travel':
-        accusation = `You are accused of taking a sealed file from the ${s.site} archive on ${s.day}. The prosecution says you travelled there from the administration office.`;
-        evidence = [
-          `The archive alarm and camera place the break-in and removal between ${time(s.theftStart)} and ${time(s.theftEnd)}. Their clocks use official time.`,
-          `Office footage identifies you at the administration desk at ${time(s.seen)}. The office clock was synchronized with the archive clocks.`,
-          `An agreed reconstruction establishes ${s.minimumJourney} minutes as the minimum journey from the desk to the archive by any means available that day.`,
-          'An examiner identifies you in archive footage removing the file. A clear fingerprint of yours was recovered from its storage drawer.',
-          'You knew the archive layout but had never been authorized to handle that drawer. The prosecution alleges that you personally removed the file.',
-        ];
-        solution = `Your earliest arrival is ${time(s.seen + s.minimumJourney)}, calculated from ${time(s.seen)} plus ${s.minimumJourney} minutes. ${flawed ? `That is after the removal ended at ${time(s.theftEnd)}, so the alleged journey is impossible.` : `That permits arrival before the removal starts at ${time(s.theftStart)}; the office sighting supplies no timing alibi.`}`;
-        challenge =
-          'The office timestamp and minimum journey time put my earliest arrival after the archive break-in ended. I could not have personally removed the file in that interval.';
-        break;
-      case 'visibility':
-        accusation = `You are accused of starting a fire inside the ${s.site} loading bay on ${s.day}. A colleague identifies you as the person who lit it.`;
-        evidence = [
-          `The colleague reports seeing your face at ${time(s.identified)} under the ceiling floodlights, then watching you ignite packaging. The colleague's watch was checked against official time.`,
-          `The switching log records the bay lighting breaker opening at ${time(s.outageStart)} and closing at ${time(s.outageEnd)}. Those entries use official time.`,
-          'The wiring schedule puts every bay floodlight on that breaker, with no backup supply. A closed breaker powers the lights; an open breaker disconnects them. The bay has no daylight openings.',
-          'The colleague knew you well and stood several metres away. The identification was made before the fire itself produced light.',
-          'Your assignment gave you access to the bay. Burn patterns support the reported ignition point, while the colleague provides the identification of the person responsible.',
-        ];
-        solution = `Recognition is reported at ${time(s.identified)}. The floodlights were disconnected from ${time(s.outageStart)} to ${time(s.outageEnd)}. ${flawed ? 'The identification falls inside that interval, so its stated illumination was unavailable.' : 'The breaker had already closed, so the lights were powered when the colleague identified you.'}`;
-        challenge =
-          'Connecting the witness’s time with the breaker log and wiring schedule shows the floodlights were off during the identification. The claimed facial recognition is unreliable.';
-        break;
-      case 'access':
-        accusation = `You are accused of authorizing a ${money(s.transfer)} payment to your own company from the ${s.site} office on ${s.day}. The payment had no business approval.`;
-        evidence = [
-          `The bank records the transfer at ${time(s.at)} using account ${s.account}. The recipient's verified company registration names you as its owner.`,
-          `The original access register granted working credentials for ${s.account} to ${s.users} staff, including you.`,
-          `At ${time(s.revokedAt)}, an authenticated access change revoked every other user's credentials and retained yours. The system immediately invalidated their active sessions and stored tokens.`,
-          'The transaction audit identifies the account but carries no individual operator identifier. The access-change log and bank timestamp share the same checked clock.',
-          'Finance confirms there was no approved invoice, gift, or refund supporting this payment. You had helped configure the account.',
-        ];
-        solution = `Other users lost access at ${time(s.revokedAt)}, while the transfer occurred at ${time(s.at)}. ${flawed ? `All ${s.users} credential holders still had access at transfer time, so the account log does not uniquely identify you.` : 'Only your credentials remained active at transfer time. The earlier shared-access register does not establish an alternative authorized operator for this transaction.'}`;
-        challenge =
-          'The access register and revocation timing show other staff could still use this account when the transfer happened. The account name alone does not identify me as its operator.';
-        break;
-      case 'ledger': {
-        const approved = s.payment * s.transactions;
-        accusation = `You are accused of diverting ${money(s.payment)} while processing the ${s.site} payment batch on ${s.day}. An outgoing-payment spreadsheet exceeds the authorized schedule.`;
-        evidence = [
-          `The signed schedule authorizes ${s.transactions} payments of ${money(s.payment)} each to listed suppliers. Those were the batch's only authorized payments.`,
-          `The imported spreadsheet totals ${money(s.claimedTotal)}. You prepared the import and had authority to process the signed schedule.`,
-          `The complete bank statement totals this batch at ${money(s.bankTotal)}. ${flawed ? 'Every debit names an approved supplier.' : `One debit of ${money(s.payment)} names your personal account as recipient.`}`,
-          `Two import rows carry IDs ${s.transactionId} and ${s.secondTransactionId}, each for ${money(s.payment)}. The bank assigns a unique ID to each transfer, and each ID occurs once on its statement.`,
-          'The import includes all batch debits. Each bank transfer bears your individual authenticated approval. Remaining rows match the schedule; no reversals or adjustments occurred.',
-        ];
-        solution = `Authorized payments total ${money(approved)}. ${flawed ? `The two ${s.transactionId} rows repeat one transfer; subtracting ${money(s.payment)} from the spreadsheet gives the bank total of ${money(s.bankTotal)}. The alleged missing amount is a duplicate import.` : `The two row IDs differ. Bank debits total ${money(s.bankTotal)}, including the extra ${money(s.payment)} to your account. The excess is a real transfer, not a duplicated row.`}`;
-        challenge =
-          'The import counted the same bank transfer twice. Removing the repeated row reconciles the spreadsheet with the authorized payments and the bank statement.';
-        break;
-      }
-      case 'vehicle':
-        accusation = `You are accused of driving the van used in a robbery at the ${s.site} depot on ${s.day}. The prosecution links the departing vehicle to your registration history.`;
-        evidence = [
-          `At ${time(s.at)}, depot footage shows the stolen crates loaded into a ${s.color} van bearing plate ${s.recordedPlate}, which then departs. The plate is clear; the driver’s face is obscured.`,
-          `Your van's registration history records a change from ${s.recordedPlate} to ${s.suspectPlate} at ${time(s.plateChangedAt)} that day. Both entries identify the same vehicle chassis.`,
-          'An authenticated workshop record places the physical plate replacement at the registry change time. The recorded registration was displayed up to that change, and the replacement registration afterward.',
-          `A witness describes the departing van's ${s.color} bodywork and general build. These match your van; the witness could not identify the driver.`,
-          `An authenticated in-cab recording identifies you driving your own van continuously from ${time(s.at - 5)} to ${time(s.at + 5)}. Its chassis number matches the registry.`,
-        ];
-        solution = `The camera records ${s.recordedPlate} at ${time(s.at)}; your plates changed to ${s.suspectPlate} at ${time(s.plateChangedAt)}. ${flawed ? 'The replacement was already fitted by the recorded departure, so that registration does not identify your van at the relevant time.' : 'The departure precedes the replacement. Your van still displayed the recorded plate, so comparing the footage only to the later registration creates a false discrepancy.'}`;
-        challenge =
-          'The registration history and physical replacement record show my van had its new plate by the time of the camera image. The camera’s old plate does not identify my van at that time.';
-        break;
-      case 'custody':
-        accusation = `You are accused of storing a prohibited accelerant in your locker at ${s.site} on ${s.day}. The prosecution attributes a positive laboratory result to the recovered container.`;
-        evidence = [
-          `The recovery photograph shows the sample from your locker sealed as ${s.recoveredSeal}. The signed search record identifies your individually assigned, locked compartment.`,
-          `The lab reports ${s.labReading} milligrams of the prohibited accelerant in the sample delivered under intact seal ${s.testedSeal}.`,
-          `The first witnessed repackaging record transfers ${s.recoveredSeal} into new seal ${s.intermediateSeal}. The original packaging was damaged during transport.`,
-          `The later witnessed laboratory-preparation record transfers ${s.labSourceSeal} into new seal ${s.testedSeal}. It records one source container and no pooled samples.`,
-          'The custody register is complete: each transfer preserves the named container’s contents, and these are the only seal changes recorded. You held the locker’s only issued key.',
-        ];
-        solution = `The locker sample follows ${s.recoveredSeal} → ${s.intermediateSeal}. The lab sample follows ${s.labSourceSeal} → ${s.testedSeal}. ${flawed ? 'Those chains do not join in the complete register, so the positive result is not linked to your recovered sample.' : 'The chains join through the intermediate seal. The documented repackaging explains the changed label and preserves the connection to your sample.'}`;
-        challenge =
-          'Following the two custody transfers shows the chain from my locker sample does not reach the seal tested by the laboratory. The positive result has not been linked to that sample.';
-        break;
-      case 'revision':
-        accusation = `You are accused of falsely certifying a ${money(s.fee)} fee in the ${s.site} contract on ${s.day}. Your certification refers to the document you signed.`;
-        evidence = [
-          `The authenticated signature record binds you to version ${s.signedVersion} at ${time(s.signedAt)}. The signed file has remained unchanged.`,
-          `The certified archive shows that original version ${s.originalVersion} included the ${money(s.fee)} fee.`,
-          `Version ${s.originalVersion + 1}, issued at ${time(s.feeRemovedAt)}, deleted the fee. The complete change log records no subsequent reinstatement.`,
-          `The prosecution quotes version ${s.citedVersion}, issued at ${time(s.citedAt)}. That version corrected only an address and carries forward the prior version's fee terms.`,
-          `At signing, you certified that the signed version included the ${money(s.fee)} fee. You had negotiated that fee and would benefit from its inclusion.`,
-        ];
-        solution = `The fee was removed in version ${s.originalVersion + 1} at ${time(s.feeRemovedAt)}. You signed version ${s.signedVersion} at ${time(s.signedAt)}. ${flawed ? 'Your signed version still contained the fee; the later deletion does not falsify your certification.' : 'You signed after removal, and the signed version already omitted the fee. The prosecution’s later copy preserves that same term, so its later date does not rescue the certification.'}`;
-        challenge =
-          'The signature and version history show I signed while the fee was still included. The fee was removed later, so the prosecution’s later copy does not make my certification false.';
-        break;
-      default:
-        ({ accusation, evidence, solution, challenge } = renderAdditional(s));
+  switch (s.kind) {
+    case 'workshop': {
+      accusation = `You are accused of deliberately killing the victim with a metal bar at the ${s.site} repair workshop on ${t}.`;
+      evidence = [
+        `Emergency and medical records: the victim was found dead beside the workbench. The fatal head injuries correspond to the repeated bar strikes on the workshop recording.`,
+        `Workshop camera, synchronized to dispatch time: on ${t}, a masked person repeatedly strikes the unarmed, retreating victim. The face is hidden. No earlier violence appears in the recording.`,
+        `Corridor camera: displayed entry ${time(s.entryAt + s.clockOffsetMinutes * minute)}; departure ${time(s.departureDisplay)}. The defendant uses the only entrance. The victim is alone before entry; continuous footage shows nobody else entering before departure, when recording ends.`,
+        `Clock examiner: corridor time = dispatch time plus ${s.clockOffsetMinutes} minutes. ${s.clockErrorMinutes ? `The offset estimate has an uncertainty of ±${s.clockErrorMinutes} minutes. No finer calibration survives.` : 'Calibration before and after the incident confirms this offset to the minute.'}`,
+        `Witness statement: "The defendant came out in dark coveralls carrying something long and metal. I was across the yard." Tool records show that several workers used bars like the one recovered beside the victim.`,
+      ];
+      break;
     }
+    case 'stairwell':
+      accusation = `You are accused of deliberately pushing the victim down the stairs at ${s.site} flats on ${t}, causing their death.`;
+      evidence = [
+        `Medical and scene report: the victim died from injuries sustained in a fall down the stairwell. A silent silhouette recording shows one person using both hands to shove the retreating victim over the landing edge on ${t}.`,
+        `First witness, from a window 35 metres away: "The landing lamp lit the attacker's face for a moment. I thought it was the defendant, a neighbor." The window gives a direct view but the glimpse lasted about a second.`,
+        `Power log and scene survey: the landing lamp was off from ${time(at - 20 * minute)} until ${time(s.lightsRestoredAt)}. A battery exit sign stayed lit on the covered landing facing the witness’s window; its brightness was not measured.`,
+        s.independentIdentification
+          ? `Resident's original phone recording: from the landing doorway, a continuous close view clearly shows the defendant's face while they shove the victim, who is backing away with empty hands.`
+          : `Second witness: "From the floor below I heard a voice I recognized as the defendant’s. Then the first witness called out that it was the defendant." The statement records no view of the push from that floor.`,
+        `Caretaker's statement: the defendant lives in the building and argued with the victim about noise earlier that evening. Other residents used the same stairs. The caretaker did not witness the fall.`,
+      ];
+      break;
+    case 'loading_dock':
+      accusation = `You are accused of unlawfully attacking the injured worker at the ${s.site} loading dock on ${t}, causing a broken wrist.`;
+      evidence = [
+        `Clinic and ambulance records: the injured worker broke a wrist in a fall on ${t}. The dock recording clearly identifies both the defendant and the injured worker.`,
+        `Complaint from the injured worker: "The defendant attacked me without warning. I had not touched or threatened them." The statement was taken after treatment.`,
+        s.recording === 'complete_attack'
+          ? `Original dock video: the uninterrupted minute before the fall shows the injured worker standing with empty hands. The defendant approaches, punches the injured worker, then deliberately pushes them onto the loading ramp.`
+          : s.recording === 'disputed_force'
+            ? `Original dock video: the injured worker swings a hook toward the defendant, then steps back and lowers it. About two seconds later the defendant pushes the worker onto the ramp. The hook remains in the worker’s hand; the view of their feet is blocked.`
+            : `Exported dock clip: the file begins with the defendant pushing the injured worker, who falls. The original recorder failed; the preceding minute cannot be recovered. The worker is already moving backward as the visible push lands.`,
+        s.recording === 'complete_attack'
+          ? `Dispatch recording: "I can see the whole ramp. The defendant walked over and hit the injured worker; the injured worker was just standing there." The call begins before the fall.`
+          : `Dispatch recording: "Someone is swinging a hook at the defendant by the gate. The defendant is trying to get away." The call begins just before the fall; the caller's view ends at the gate.`,
+        `Supervisor's log: the defendant and the injured worker had disputed a shift assignment. Both were authorized to be at the dock. Police found a metal cargo hook at the gate and recorded no further violence after the fall.`,
+      ];
+      break;
+    case 'station':
+      accusation = `You are accused of deliberately striking an unthreatening passenger in the ${s.site} station passage on ${t}.`;
+      evidence = [
+        `Station camera and clinic record: an attacker strikes a passenger who is reading the departures board and causes a facial injury on ${t}. The overhead camera shows the act but not the attacker's face.`,
+        `First witness: "I heard the impact, looked up from kiosk K, and saw the defendant’s face where the passenger was falling." The witness knows the defendant as a regular passenger. The distance from K was 30 metres.`,
+        `Maintenance record and floor plan: a 1.5-metre screen stood between kiosk K and the attack location until ${time(s.barrierRemovedAt)}. It obscured hand movements at that position; a standing adult’s head could be seen above it.`,
+        s.secondAccount === 'independent'
+          ? `Platform camera: a separate continuous close view identifies the defendant entering the passage and striking the passenger, who neither approaches nor threatens the attacker.`
+          : `Second witness: "A person in a dark coat moved toward the south exit just after the impact. The first witness then identified the defendant." The second witness was beside the stairs and described no facial features.`,
+        `Concourse footage: the defendant was in the station shortly before the attack, wearing a dark coat. Several passengers wore similar coats. The passenger saw the blow too late to identify the attacker.`,
+      ];
+      break;
+    case 'pharmacy': {
+      const uncertain = s.journeyUncertaintyMinutes > 0;
+      accusation = `You are accused of breaking into a pharmacy in ${s.site} on ${t} to steal prescription stock.`;
+      evidence = [
+        `Alarm and interior camera: on ${t}, a person forces a locked rear door, enters the closed pharmacy, fills a bag with stock, and leaves. The owner's access list grants the defendant no permission to enter.`,
+        `Owner, who knows the defendant: "I identify the defendant on the entry footage." ${uncertain ? 'The face is partly covered and the frame is blurred.' : 'The camera records the uncovered face under the entrance light.'} The report preserves the original image.`,
+        `Independent garage camera: the defendant leaves the staffed garage on foot on ${time(s.departureAt)}. The garage and pharmacy recorders were checked against the same time source.`,
+        `Route reconstruction: a trial from the garage to the pharmacy took ${s.journeyMinutes} minutes${uncertain ? `; variations in waiting and route conditions give a range of ${s.journeyMinutes - s.journeyUncertaintyMinutes}–${s.journeyMinutes + s.journeyUncertaintyMinutes} minutes` : ', using routes and transport available that night'}. Both location recorders use the same time source.`,
+        `Search on ${time(s.searchAt)}: stolen stock was in a used bag in a cupboard shared with a housemate. Print examination on ${time(s.examinedAt)} matched the defendant to the outer zipper; the inner wrapping yielded no usable print.`,
+      ];
+      break;
+    }
+    case 'jeweler':
+      accusation = `You are accused of forcing entry to a jewelry workshop in ${s.site} on ${t} and breaking a safe to steal watches.`;
+      evidence = [
+        `Alarm, inventory, and entry camera: on ${t}, a masked intruder forces the closed workshop door and breaks the safe handle to take three serial-numbered watches. The defendant had no permission to enter that night.`,
+        `Repair invoice and work photograph: the defendant serviced the intact safe on ${time(s.visitAt)}, touching the outer service panel and a loose pry tool. The handle was intact when the owner locked up before the burglary.`,
+        `Print record: lifted on ${time(s.collectedAt)} from ${s.traceSurface === 'fresh_fracture' ? 'the inner face exposed by the broken handle' : s.traceSurface === 'service_panel' ? 'the outer panel beside the broken handle' : 'the loose pry tool'}. Collection photos confirm the location. Examination on ${time(s.examinedAt)} matches the defendant; the print's age is unknown.`,
+        s.traceSurface === 'fresh_fracture'
+          ? `Investigator's reconstruction: the printed inner face was sealed inside the handle until the break-in. A street camera places the defendant outside the workshop five minutes before the alarm.`
+          : s.traceSurface === 'service_panel'
+            ? `Evidence sheet and street recording: the lift location is entered as "handle assembly." The collection photograph shows the outer panel beside the break. A street camera places the defendant outside five minutes before the alarm.`
+            : `Tool inventory and street recording: the pry tool stayed in the workshop after the repair. A street camera places the defendant near the workshop five minutes before the alarm; its view stops before the entrance.`,
+        s.traceSurface === 'fresh_fracture'
+          ? `Buyer's retained video call on ${time(s.offeredAt)}: the defendant offers a watch with a stolen serial number for cash. The buyer's copy clearly records the face, voice, and serial.`
+          : `Sales-platform record on ${time(s.offeredAt)}: a stolen serial-numbered watch was offered from the defendant’s work laptop. A colleague also used the account and laptop. The listing shows the watch; no buyer met the seller.`,
+      ];
+      break;
+    case 'bus':
+      accusation = `You are accused of threatening the bus driver with a knife and taking the fare cash at the ${s.site} terminus on ${t}.`;
+      evidence = [
+        `Bus recording: on ${t}, a person gets out of van ${s.plate}, threatens the driver with a knife, takes the fare bag, and returns to the van. The sequence is continuous.`,
+        s.driverImage === 'clear'
+          ? `Bus front camera: the same person's uncovered face is clear throughout the threat and taking. The driver, a former coworker, identifies that person as the defendant.`
+          : `Bus camera and driver statement: a hood partly covers the robber’s face. The driver, a former coworker, associates the brief profile and voice with the defendant. During the threat, the driver looked down toward the knife.`,
+        `Registry extract dated ${time(at - 10 * 24 * 60 * minute)}: van ${s.plate} is registered to the defendant. Police used this extract to identify a suspect.`,
+        `Sale agreement: van ${s.plate} was sold to the buyer on ${time(s.saleSignedAt)} with its plate unchanged. The buyer says it was collected the following morning. The collection section has a signature but no time entered.`,
+        `Insurance and key records: both the defendant and the buyer were listed as drivers. The defendant retained a spare key until ${time(s.saleSignedAt + 7 * 24 * 60 * minute)}. No stolen cash or knife was recovered from the defendant.`,
+      ];
+      break;
+    case 'courier':
+      accusation = `You are accused of threatening the courier with a metal bar and taking a sealed parcel at the ${s.site} depot on ${t}.`;
+      evidence = [
+        `Depot video and courier statement: on ${t}, the person entering with badge ${s.badge} threatens the courier with a bar and takes the parcel. The video follows one person continuously from the badge reader to the courier.`,
+        `Printed shift roster: badge ${s.badge} is assigned to the defendant. The roster was printed on ${time(at - 60 * minute)} and was the basis for naming the suspect.`,
+        `Electronic roster: the supervisor changed badge ${s.badge} from the defendant to a coworker on ${time(s.badgeReassignedAt)}. The physical-collection field is blank. Badges were kept in an unlocked drawer beside the desk.`,
+        s.faceImage === 'clear'
+          ? `Entrance camera: the badge user's face remains clear from entry through the taking. The supervisor, who works daily with the defendant, identifies the user as the defendant.`
+          : `Entrance camera and supervisor statement: the cap hides part of the badge user’s face. The supervisor says the profile and build resemble the defendant, with whom they work daily. The camera records only one side of the face.`,
+        `Parcel inventory and recovery record: the stolen serial-numbered parcel was found beneath the defendant’s workbench in the common loading bay. The bench has no lock; coworkers use that area between shifts. No handling trace was recovered.`,
+      ];
+      break;
+    case 'bank_call':
+      accusation = `You are accused of posing as a bank investigator in ${s.site} on ${t}, deceiving an account holder into transferring ${money(s.amount)} in savings and taking the money.`;
+      evidence = [
+        `Victim's call recording on ${t}: the caller claims to be a bank investigator and orders a transfer to a "safe account." The victim follows the instruction. The bank confirms that the caller and destination had no connection to its fraud team.`,
+        `Bank records: ${money(s.amount)} left the victim's savings on ${t} and entered the defendant's personal account. That sum was withdrawn with the defendant's card on ${time(s.withdrawnAt)}. The victim received no refund.`,
+        `Computer examination on ${time(s.examinedAt)}: the call provider's session ID matches a call made from the defendant's laptop. The call used a spoofed bank number. A saved script contains the victim's account details and the same transfer instruction.`,
+        s.access === 'exclusive'
+          ? `Session log: from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}, the call ran under the defendant's private login. The examiner found local microphone input and no remote connection. The defendant confirms sole possession of the laptop and card.`
+          : s.access === 'remote_session'
+            ? `Support log: remote control ran from ${time(s.sessionStartedAt)} to ${time(s.sessionEndedAt)}. Local and remote input share one audit trail. Messages confirm the housemate borrowed the defendant's bank card and PIN for errands that morning.`
+            : `Household records: the defendant and a housemate used the same laptop login and calling account. Messages from the previous day gave the housemate the bank card and PIN for errands. Both had access to the laptop during the call.`,
+        s.access === 'exclusive'
+          ? `Cashpoint camera on ${time(s.withdrawnAt)}: a continuous clear view shows the defendant inserting the card and taking the cash. Their face matches the bank's account-opening photograph.`
+          : `Cashpoint camera on ${time(s.withdrawnAt)}: the person taking the cash wears a jacket like the defendant's and has a similar build. A cap and the viewing angle obscure the face; the footage cannot resolve facial features.`,
+      ];
+      break;
+    case 'charity':
+      accusation = `You are accused of posing as an authorized hospital collector at the ${s.site} market on ${t}, obtaining ${money(s.amount)} from donors through that false claim and keeping it.`;
+      evidence = [
+        `Donor receipts and phone recording on ${t}: the collector says all cash in tin ${s.tin} will buy hospital equipment. Recorded receipts total ${money(s.amount)}. Donors say that promise caused them to give the cash.`,
+        `Hospital records: the appeal and printed authorization letter are fabricated. The hospital authorized no collection that day and received none of the money. The letter carries a copied hospital logo and a signature its director denies making.`,
+        s.identification === 'continuous'
+          ? `Stall camera and vendor statement: continuous close footage identifies the defendant making the appeal, receiving the cash, and emptying the tin into a personal bag. The vendor has known the defendant for years.`
+          : s.identification === 'prompted'
+            ? `Donor interview: after a brief side view, the donor first described a jacket and build. The donor later saw the defendant's old hospital volunteer photograph online and then named the defendant. The stall camera shows a similar profile.`
+            : `Vendor statement and stall camera: the vendor says the collector's jacket and build resemble the defendant's. A cap hides the upper face. The vendor saw the collector hold tin ${s.tin} and leave with it; the recording preserves that partial view.`,
+        `Search on ${time(s.searchedAt)}: tin ${s.tin}, a badge like the collector's, and ${money(s.amount)} in cash were in the defendant's garage. A print lifted from the tin matches the defendant. The examiner cannot date when the print was left.`,
+        s.identification === 'continuous'
+          ? `Volunteer archive on ${time(s.priorEventAt)}: the defendant handled tin ${s.tin} at an earlier authorized event. The old badge was returned then. A print-shop receipt on ${time(at - day)} links the fabricated appeal letter and replacement badge to the defendant's order.`
+          : `Volunteer archive on ${time(s.priorEventAt)}: the defendant and two volunteers handled tin ${s.tin}. The equipment then stayed in the garage; all three held keys. A group message shows a volunteer collecting a box there on the morning of the disputed appeal.`,
+      ];
+      break;
+    case 'storage':
+      accusation = `You are accused of deliberately setting fire to a unit at the ${s.site} storage yard on ${t}.`;
+      evidence = [
+        `Yard camera: on ${t}, a masked person pours liquid inside the unit and ignites it; fire spreads along the poured trail. Their coat catches on the latch and leaves a torn scrap. The face remains hidden.`,
+        `Collection inventory on ${time(s.collectedAt)}: after firefighters cleared the scene, the latch scrap was photographed and sealed as ${s.sceneSeal}. A loose scrap from the detained defendant's coat pocket was separately sealed as ${s.sceneSeal + 2}.`,
+        `Laboratory examination on ${time(s.examinedAt)}: package ${s.testedSeal}, submitted as "yard scrap," ${s.comparison === 'physical_fit' ? 'has torn edges that fit the missing section of the seized coat' : 'has weave and dye consistent with the coat’s fabric batch. Charring prevents a reliable edge comparison'}.`,
+        `Evidence intake on ${time(s.receivedAt)}: ${s.testedSeal !== s.sceneSeal ? `the officer reports replacing wet scene bag ${s.sceneSeal} with ${s.testedSeal}. A photo shows a scrap beside the latch label; the old seal is out of frame and the second signature is blank.` : `scene package ${s.testedSeal} arrived sealed, matching the collection photograph. The coat reference stayed in storage.`}`,
+        `Witness and detention records: the defendant wore the seized coat on ${time(at - 5 * minute)} and ${time(at + 3 * minute)}, and confirms keeping it on throughout. The coat is torn. The owner forbade burning the contents. Similar coats are sold locally; nobody saw the igniter’s face.`,
+      ];
+      break;
+    case 'restaurant':
+      accusation = `You are accused of deliberately setting fire to a closed restaurant in ${s.site} on ${t}.`;
+      evidence = [
+        `Fire service log: the fire began in the locked rear office on ${t}, damaging the restaurant. The alarm time agrees with the first visible smoke on the exterior recording.`,
+        `Continuous entrance footage and scene plan: the defendant was the only person entering the office during the hour before ignition, leaving two minutes before the alarm. It has one door and sealed windows; the owner had locked it empty.`,
+        s.origin === 'poured_fuel'
+          ? `Origin examiner's report: a trail of poured fuel led from the office doorway to the burned desk; a used ignition match lay at its start. The electrical fault was confined to an isolated circuit and did not ignite the fire.`
+          : s.origin === 'competing_origins'
+            ? `Origin reports: examiner A places ignition beside the desk and notes solvent residue. Reviewer B places it at the faulty socket, beside solvent used for cleaning. Heat damage prevents either examiner from establishing when the circuit first arced.`
+            : `Origin examiner's report: damage destroyed the decisive traces. Ignition could have begun at the faulty socket or beside the desk. Samples and circuit records cannot distinguish deliberate ignition from an electrical fire.`,
+        `Maintenance ticket: the owner had reported a failing office socket that afternoon. Staff were told the fault would be inspected the next morning. The origin examiner reviewed the ticket and the recovered circuit.`,
+        `Staff and search records: after dismissal the defendant said, "This place will go up in flames," then collected belongings. A fuel can was found in their car. A service receipt records fuel-powered garden equipment; nobody saw the defendant bring fuel inside.`,
+      ];
+      break;
+  }
+  const review = reviewScenario(s);
   const roll = random(s.seed ^ 0x9e3779b9);
   for (let i = evidence.length - 1; i > 0; i--) {
     const j = roll(0, i);
     [evidence[i], evidence[j]] = [evidence[j], evidence[i]];
   }
   return {
-    title: `${titles[s.kind]} · ${s.site} #${s.reference}`,
-    category:
-      'facts' in s
-        ? 'REGULATORY EVIDENCE'
-        : s.kind === 'ledger' || s.kind === 'access' || s.kind === 'revision'
-          ? 'FINANCIAL EVIDENCE'
-          : 'CRIMINAL EVIDENCE',
+    title: `${catalog[s.kind].title} · ${s.site} #${s.reference}`,
+    category: catalog[s.kind].category,
     accusation,
     evidence,
-    solution,
-    rubric: `Internal evaluation: ${solution} The sample challenge is ${flawed ? 'supported' : 'contradicted'} by the exhibits. Assess other arguments on their own evidence.`,
-    sampleDefense: challenge,
+    solution: review.reason,
+    rubric: `${review.expectedVerdict ? 'Supported control: guilty is the authored expectation.' : 'Contested record: evaluate both arguments; no fixed verdict expectation.'} Author's event account: ${review.truth}`,
+    sampleDefense: review.conciseDefense,
   };
 }
 
@@ -505,20 +862,10 @@ export function generateCase(
   recentTitles: string[] = [],
   seed = crypto.getRandomValues(new Uint32Array(1))[0],
 ): PrivateCase {
-  // Keep recent stories out of the draw and separate cases with the same rule.
-  const recent = recentTitles.slice(-12);
-  const recentFamilies = recent.slice(-3).map((title) => {
-    const kind = caseKinds.find((kind) =>
-      title.startsWith(`${titles[kind]} ·`),
-    );
-    return kind && (isCatalogKind(kind) ? catalogFamily(kind) : kind);
-  });
+  const recent = recentTitles.slice(-5);
   const available = caseKinds.filter(
     (kind) =>
-      !recent.some((title) => title.startsWith(`${titles[kind]} ·`)) &&
-      !recentFamilies.includes(
-        isCatalogKind(kind) ? catalogFamily(kind) : kind,
-      ),
+      !recent.some((title) => title.startsWith(`${catalog[kind].title} ·`)),
   );
   const roll = random(seed);
   const kind = available[roll(0, available.length - 1)];

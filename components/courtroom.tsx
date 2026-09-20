@@ -256,10 +256,11 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         <section id="court-rules" className="rules-panel">
           <h2>Read the evidence. Raise reasonable doubt.</h2>
           <p>
-            Examine the accusation and five exhibits. Sometimes the evidence is
-            contradictory; sometimes it is consistent. Your goal is to raise
-            reasonable doubt. Connect the facts, question an unreliable link, or
-            explain an alternative supported by the evidence.
+            Each round presents a fictional criminal accusation and five
+            exhibits. Some cases are strongly supported; others contain
+            conflicting accounts or uncertain links. Your goal is to raise
+            reasonable doubt. Explain how a weakness affects the whole case, and
+            address the evidence against you.
           </p>
           <p>
             The Mostly Honorable Judge Jev weighs the full record and your
