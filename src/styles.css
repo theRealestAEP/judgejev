@@ -198,8 +198,8 @@ summary:focus-visible {
 .judge-art.deliberating .judge-brows {
   animation: brow 0.8s ease-in-out infinite alternate;
 }
-.judge-art.verdict .gavel-arm {
-  animation: strike 0.55s cubic-bezier(0.6, 0, 0.9, 0.8);
+.judge-art.ruling .gavel-arm {
+  animation: double-strike 0.8s linear;
   transform-origin: 341px 312px;
 }
 .court-caption {
@@ -597,13 +597,18 @@ summary:focus-visible {
     transform: translateY(-3px);
   }
 }
-@keyframes strike {
-  0% {
+/* The supplied recording strikes about 0.10s and 0.38s into the clip. */
+@keyframes double-strike {
+  0%,
+  34% {
     transform: rotate(-35deg);
   }
-  60% {
+  13%,
+  48% {
     transform: rotate(12deg);
   }
+  25%,
+  70%,
   100% {
     transform: rotate(0);
   }

@@ -2,7 +2,7 @@
 export function Judge({
   state = 'reading',
 }: {
-  state?: 'reading' | 'deliberating' | 'verdict';
+  state?: 'reading' | 'deliberating' | 'ruling' | 'verdict';
 }) {
   return (
     <svg

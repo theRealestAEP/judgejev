@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { Judge } from '@/components/judge';
-import { useBackgroundMusic } from '@/hooks/use-background-music';
+import { useCourtAudio } from '@/hooks/use-court-audio';
 import type {
   CaseDelivery,
   CourtConfig,
@@ -20,6 +20,10 @@ import type {
 } from '@/lib/game-types';
 
 const ROUND_SECONDS = 180;
+const DELIBERATION_MS = 2000;
+const GAVEL_SEQUENCE_MS = 800;
+const pause = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 export function Courtroom({ config }: { config: CourtConfig }) {
   const [current, setCurrent] = useState<CaseDelivery | null>(null);
@@ -27,6 +31,8 @@ export function Courtroom({ config }: { config: CourtConfig }) {
   const [result, setResult] = useState<VerdictResult | null>(null);
   const [busy, setBusy] = useState<'case' | 'verdict' | null>(null);
   const [error, setError] = useState('');
+  const [ruling, setRuling] = useState(false);
+  const mounted = useRef(true);
   const [deadline, setDeadline] = useState<number | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(ROUND_SECONDS);
   const timeoutSubmitted = useRef(false);
@@ -39,9 +45,15 @@ export function Courtroom({ config }: { config: CourtConfig }) {
   const caseHeading = useRef<HTMLHeadingElement>(null);
   const resultHeading = useRef<HTMLDivElement>(null);
   const defenseField = useRef<HTMLTextAreaElement>(null);
-  const { startMusic, toggleMusic, musicPlaying } = useBackgroundMusic();
+  const { startAudio, toggleAudio, audioPlaying, playSound } = useCourtAudio();
 
-  useEffect(() => () => requestController.current?.abort(), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestController.current?.abort();
+    };
+  }, []);
   useEffect(() => {
     if (result) resultHeading.current?.focus();
   }, [result]);
@@ -99,6 +111,8 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         throw new Error('Write a defense between 1 and 1,000 characters.');
       inFlight.current = true;
       setBusy('verdict');
+      setRuling(false);
+      const started = performance.now();
       setError('');
       setDefense(text);
       try {
@@ -106,7 +120,17 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           token: current.token,
           defense: text,
         });
+        await pause(
+          Math.max(0, DELIBERATION_MS - (performance.now() - started)),
+        );
+        if (!mounted.current) return verdict;
+        setRuling(true);
+        playSound('gavel');
+        await pause(GAVEL_SEQUENCE_MS);
+        if (!mounted.current) return verdict;
+        setRuling(false);
         setResult(verdict);
+        playSound('stamp');
         return verdict;
       } catch (err) {
         setError(
@@ -120,7 +144,7 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         setBusy(null);
       }
     },
-    [current, request, result],
+    [current, request, result, playSound],
   );
 
   useEffect(() => {
@@ -148,7 +172,7 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         'Fresh cases are available once the live court is connected.',
       );
     setGameStarted(true);
-    startMusic();
+    startAudio();
     inFlight.current = true;
     setBusy('case');
     setError('');
@@ -176,11 +200,13 @@ export function Courtroom({ config }: { config: CourtConfig }) {
       inFlight.current = false;
       setBusy(null);
     }
-  }, [config.generatorReady, recentTitles, request, startMusic]);
+  }, [config.generatorReady, recentTitles, request, startAudio]);
 
   const caption =
     busy === 'verdict'
-      ? '“A moment. I’m judging.”'
+      ? ruling
+        ? '“Order. The court has reached a verdict.”'
+        : '“A moment. I’m judging.”'
       : busy === 'case'
         ? '“Clerk, bring the next case.”'
         : result?.verdict === 'not_guilty'
@@ -208,12 +234,12 @@ export function Courtroom({ config }: { config: CourtConfig }) {
           {gameStarted && (
             <button
               className="rules-button"
-              onClick={toggleMusic}
-              aria-label={musicPlaying ? 'Mute music' : 'Unmute music'}
-              title={musicPlaying ? 'Mute music' : 'Unmute music'}
+              onClick={toggleAudio}
+              aria-label={audioPlaying ? 'Mute audio' : 'Unmute audio'}
+              title={audioPlaying ? 'Mute audio' : 'Unmute audio'}
             >
-              {musicPlaying ? <Volume2 /> : <VolumeX />}
-              {musicPlaying ? 'Mute' : 'Unmute'}
+              {audioPlaying ? <Volume2 /> : <VolumeX />}
+              {audioPlaying ? 'Mute' : 'Unmute'}
             </button>
           )}
           <button
@@ -230,10 +256,10 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         <section id="court-rules" className="rules-panel">
           <h2>Read the evidence. Raise reasonable doubt.</h2>
           <p>
-            Examine the accusation and five exhibits. Sometimes the evidence
-            is contradictory; sometimes it is consistent. Your goal is to raise
-            reasonable doubt. Connect the facts, question an unreliable link,
-            or explain an alternative supported by the evidence.
+            Examine the accusation and five exhibits. Sometimes the evidence is
+            contradictory; sometimes it is consistent. Your goal is to raise
+            reasonable doubt. Connect the facts, question an unreliable link, or
+            explain an alternative supported by the evidence.
           </p>
           <p>
             The Mostly Honorable Judge Jev weighs the full record and your
@@ -242,8 +268,8 @@ export function Courtroom({ config }: { config: CourtConfig }) {
             persuasive defense must still stand up to the facts.
           </p>
           <p>
-            You have three minutes once the case appears. At zero, your
-            current response is submitted automatically.
+            You have three minutes once the case appears. At zero, your current
+            response is submitted automatically.
           </p>
           <p>
             Powered by Jev from{' '}
@@ -270,7 +296,9 @@ export function Courtroom({ config }: { config: CourtConfig }) {
             <Judge
               state={
                 busy === 'verdict'
-                  ? 'deliberating'
+                  ? ruling
+                    ? 'ruling'
+                    : 'deliberating'
                   : result?.verdict
                     ? 'verdict'
                     : 'reading'
@@ -396,7 +424,9 @@ export function Courtroom({ config }: { config: CourtConfig }) {
                         <Gavel />
                       )}
                       {busy === 'verdict'
-                        ? 'Jev is deliberating…'
+                        ? ruling
+                          ? 'The verdict is in…'
+                          : 'Jev is deliberating…'
                         : secondsLeft === 0
                           ? 'Retry verdict'
                           : 'Plead your case'}
@@ -502,7 +532,9 @@ export function Courtroom({ config }: { config: CourtConfig }) {
         {busy === 'case'
           ? 'Preparing a new case.'
           : busy === 'verdict'
-            ? 'Considering your defense.'
+            ? ruling
+              ? 'The court has reached a verdict.'
+              : 'Considering your defense.'
             : secondsLeft === 0 && !result
               ? 'Time is up. Your defense is locked for submission.'
               : result
@@ -521,7 +553,9 @@ export function Courtroom({ config }: { config: CourtConfig }) {
               <span>
                 <Timer size={20} aria-hidden="true" />
                 {busy === 'verdict'
-                  ? 'JEV IS DELIBERATING'
+                  ? ruling
+                    ? 'THE VERDICT IS IN'
+                    : 'JEV IS DELIBERATING'
                   : secondsLeft === 0
                     ? 'TIME IS UP'
                     : 'TIME TO MAKE YOUR CASE'}
