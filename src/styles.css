@@ -453,6 +453,28 @@ summary:focus-visible {
 .game-footer span:last-child {
   color: #e5c48d;
 }
+.footer-credit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.footer-repo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  color: inherit;
+  border-radius: 4px;
+}
+.footer-repo:hover {
+  color: #fff3d4;
+}
+.footer-repo:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
 .rules-panel {
   max-width: 1400px;
   margin: 20px auto 0;
